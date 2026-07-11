@@ -79,12 +79,20 @@ Static + Hex-Rays analysis via idalib (headless IDA Pro 9.4 — see `tools/`):
   → `IJobParallelForTransform`.
 
 **Origin — not game code.** `Assembly-CSharp.dll` has **no** `BurstCompile`/`IJob*`/`Schedule`
-strings. The jobs come from stock Unity packages in `Managed/`:
-`Unity.2D.Animation.Runtime` (sprite skinning), `Unity.2D.IK.Runtime` (2D IK),
-`Unity.2D.SpriteShape.Runtime` (spline tessellation),
-`Unity.RenderPipelines.Universal.2D.Internal` (URP 2D lights/shadows). The sqrt+div math =
-bone-direction normalization (IK) and tangent/normal recompute (deform / SpriteShape).
-Implication: the game uses **bone-rigged, skinned 2D characters**.
+strings. The jobs come from stock Unity packages in `Managed/`, named from their assemblies:
+
+- **2D Animation** (per-frame sprite skinning): `SkinDeformBatchedJob`, `BoneDeformBatchedJob`,
+  `PrepareDeformJob`, `UpdateBoundJob`, `CalculateSpriteSkinAABBJob`, `CopySpriteRendererBuffersJob`,
+  `*TransformAccessJob`.
+- **SpriteShape** (spline→mesh, on shape change): `MakeCreatorJob`, `MakeModifierJob`.
+- **URP 2D** (per-frame light culling, tiny): `TilingJob`, `ZBinningJob`, `LightMinMaxZJob`,
+  `TileRangeExpansionJob`, `DrawCallJob` (decals).
+
+The two heavy bodies map with high confidence: `sub_18000E340` (789 div / 43 sqrt / `__m128`,
+normalizations) = **`SkinDeformBatchedJob`** (per-vertex skinning); `sub_18002AA90` =
+**SpriteShape tessellation**. So the only per-frame fallback cost is sprite skinning + URP
+light binning — negligible on an M2 Max. Implication: the game uses **bone-rigged, skinned 2D
+characters**.
 
 **Risk downgraded → likely non-issue.** These are first-party Unity jobs with
 **Unity-maintained managed fallbacks** (a supported config, not janky). Low-vertex 2D
@@ -137,10 +145,15 @@ iterating on the native port.
 - [x] ~~Burst-heavy code paths~~ — characterized: stock Unity 2D-animation/IK/SpriteShape/URP
       jobs, supported managed fallback, regenerable ARM64 lib if needed. Measure on the real
       game to confirm, but expected fine on M2 Max.
-- [ ] Save location: where `Application.persistentDataPath` lands on macOS
-      (`~/Library/Application Support/Orsoniks/CasualtiesUnknown/`) vs the Windows path.
-- [ ] Input remapping / controller behavior under the native player.
-- [ ] **DRM check on the retail build** (demo is clean) — see Distribution & legal.
+- [x] Save location — resolved: `Application.persistentDataPath` (game uses `WorldSaveData`),
+      company=`Orsoniks` product=`CasualtiesUnknown` → macOS
+      `~/Library/Application Support/Orsoniks/CasualtiesUnknown/`. Migrate a Windows/UTM save
+      from `%USERPROFILE%\AppData\LocalLow\Orsoniks\CasualtiesUnknown\`.
+- [x] Input — resolved: no `Unity.InputSystem.dll` → **legacy Input Manager**, fully
+      cross-platform, no work needed (controllers included).
+- [ ] **DRM check on the retail build.** Demo scan is clean: no Steamworks/license/activation/
+      tamper/checksum strings and no network endpoints in `Assembly-CSharp.dll` (the only
+      `UnityWebRequest` use is `UnityWebRequestMultimedia` for the local `custommusic/` feature).
 
 ## Distribution & legal (personal-use port)
 
