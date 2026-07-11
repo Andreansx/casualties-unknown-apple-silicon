@@ -23,3 +23,28 @@ python3 decomp_top.py /path/to/lib_burst_generated.dll 0x18000E340 0x18002AA90
   **not** `Assembly-CSharp.dll` → supported managed fallback on Apple Silicon.
 
 See the root `README.md` → "idalib RE of `lib_burst_generated.dll`" for the full writeup.
+
+## `transplant.sh` — build the native Apple Silicon `.app`
+
+Grafts the Windows build's cross-platform data (managed CIL + assets) onto a stock macOS
+ARM64 Unity player you build yourself, drops the x86-only native plugins (Burst → managed
+fallback), keeps the Mac's Metal built-in shaders, and ad-hoc signs the bundle (required to
+launch on Apple Silicon). No game binary is patched.
+
+```sh
+# 1) In Unity Hub: install 2022.3.62f3 + Mac Build Support (Mono), build an EMPTY
+#    project for macOS / Apple Silicon  -> EmptyMac.app
+# 2) Graft the game onto it:
+./transplant.sh --win /path/to/CasualtiesUnknownDemo \
+                --mac-app /path/to/EmptyMac.app \
+                --out ~/Desktop/CasualtiesUnknown.app
+
+# iterate on the two empirical unknowns if needed:
+#   --mac-ggm       keep Mac globalgamemanagers (platform/graphics mismatch on start)
+#   --win-builtin   use Windows built-in resources (only if Mac ones misbehave)
+#   --dry-run       print the plan, change nothing
+```
+
+Refuses to run on IL2CPP builds and on a Unity-version mismatch. Validated end-to-end on the
+demo data (all transplant invariants pass); the only pieces needing a real device are the
+Mac player itself and code signing.

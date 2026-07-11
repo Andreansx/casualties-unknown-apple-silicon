@@ -103,6 +103,10 @@ makes Burst emit a NEON `lib_burst_generated.dylib` to drop in.
 
 ## Port plan (native Mono transplant)
 
+> Automated by **`tools/transplant.sh`** (validated end-to-end on the demo data). You supply
+> the Windows build + an empty macOS ARM64 player you build in Unity; it does the graft,
+> drops the x86 plugins, keeps Metal built-ins, and ad-hoc signs the bundle.
+
 Principle (mirrors an x86-appliance port): **native macOS binaries stay, the
 cross-platform payload comes from the Windows build.**
 
