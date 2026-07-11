@@ -61,11 +61,37 @@ Burst output. Everything else is portable.
 
 `lib_burst_generated.dll` is AOT-compiled `[BurstCompile]` jobs for x86-64. On ARM64 it
 simply won't load — **but Burst has a managed fallback**: the same jobs also exist as
-plain C# inside `Assembly-CSharp.dll`, so when the native Burst library for the current
-platform is missing, Unity runs the managed (Mono-JIT) version. Functionally identical,
-only slower for those specific jobs — negligible for a 2D game that uses Burst lightly.
-Regenerating a native ARM64 Burst library would require the source, so the managed
-fallback is the intended path.
+plain C# in their managed assemblies, so when the native Burst library for the current
+platform is missing, Unity runs the managed (Mono-JIT) version. Still multithreaded via
+the Job System — only SIMD + Burst's optimizer are lost for those jobs.
+
+### idalib RE of `lib_burst_generated.dll`
+
+Static + Hex-Rays analysis via idalib (headless IDA Pro 9.4 — see `tools/`):
+
+- **~32 Burst job entry points** (PE export table, hash-named), each compiled in **two x86
+  variants — AVX2 and SSE2**, and **no ARM64/NEON variant** → cannot run on Apple Silicon.
+- DB: **389 functions, ~235 KB code, 103 AVX2 / 95 SSE / 147 looped**.
+- Two heavy vectorized parallel-for bodies dominate:
+  - `sub_18000E340` — 14.9 KB, 3442 insns, SSE, loop; **789 div, 262 mul, 43 sqrt** (`__m128`).
+  - `sub_18002AA90` — 14.2 KB, 2886 insns, AVX2, loop; **144 div, 46 sqrt**, data-driven.
+- Callbacks: `TransformAccess` / `TransformAccessArray` / `JobsUtility` / `UnsafeUtility`
+  → `IJobParallelForTransform`.
+
+**Origin — not game code.** `Assembly-CSharp.dll` has **no** `BurstCompile`/`IJob*`/`Schedule`
+strings. The jobs come from stock Unity packages in `Managed/`:
+`Unity.2D.Animation.Runtime` (sprite skinning), `Unity.2D.IK.Runtime` (2D IK),
+`Unity.2D.SpriteShape.Runtime` (spline tessellation),
+`Unity.RenderPipelines.Universal.2D.Internal` (URP 2D lights/shadows). The sqrt+div math =
+bone-direction normalization (IK) and tangent/normal recompute (deform / SpriteShape).
+Implication: the game uses **bone-rigged, skinned 2D characters**.
+
+**Risk downgraded → likely non-issue.** These are first-party Unity jobs with
+**Unity-maintained managed fallbacks** (a supported config, not janky). Low-vertex 2D
+animation on an M2 Max should hold framerate on the scalar path. And because they are
+**stock packages, not proprietary code, a native ARM64 Burst lib is regenerable**: a minimal
+Mac 2022.3.62f3 project using the same packages + a skinned/IK/SpriteShape/2D-light scene
+makes Burst emit a NEON `lib_burst_generated.dylib` to drop in.
 
 ## Port plan (native Mono transplant)
 
@@ -108,16 +134,44 @@ iterating on the native port.
 
 - [ ] `globalgamemanagers` portability (see above).
 - [ ] Custom shaders → Metal variants present?
-- [ ] Burst-heavy code paths — measure managed-fallback perf on the actual game.
+- [x] ~~Burst-heavy code paths~~ — characterized: stock Unity 2D-animation/IK/SpriteShape/URP
+      jobs, supported managed fallback, regenerable ARM64 lib if needed. Measure on the real
+      game to confirm, but expected fine on M2 Max.
 - [ ] Save location: where `Application.persistentDataPath` lands on macOS
       (`~/Library/Application Support/Orsoniks/CasualtiesUnknown/`) vs the Windows path.
 - [ ] Input remapping / controller behavior under the native player.
+- [ ] **DRM check on the retail build** (demo is clean) — see Distribution & legal.
+
+## Distribution & legal (personal-use port)
+
+Not legal advice. Intent: publish this repo as a **method** to run *your own legally-bought
+copy* on Apple Silicon — never to distribute the game.
+
+Guardrails that keep it defensible:
+- **Tooling + docs only.** No game assets or binaries (already `.gitignore`d).
+- **No Unity runtime redistribution.** The user installs Unity 2022.3.62f3 + Mac Build
+  Support and builds the empty player locally — produced under their own Unity license,
+  never shipped from this repo.
+- **Bring-your-own-copy.** The script points at the user's own installed game files.
+- **DRM check on release.** The demo has no Steam DRM/license stub; if the retail build is
+  DRM-free too there is no protection measure to circumvent. If it wraps with Steam DRM,
+  running outside that wrapper raises anti-circumvention concerns (US DMCA §1201) —
+  re-evaluate then.
+
+Favorable footing (EU / Poland): Software Directive 2009/24/EC Art. 5(1) (lawful acquirer may
+adapt for intended use) and Art. 6 (RE for interoperability). US interop precedent:
+*Sony v. Connectix*, *Sega v. Accolade* (RE a platform to run software on other hardware).
+
+**Best practical move:** ask the developer (Orsoniks) — a solo indie dev often welcomes a
+community Apple-Silicon path, or may ship an official Mac build.
 
 ## Repository notes
 
 - **The game binaries are not committed** (copyright + ~300 MB). Place the demo locally in
   `CasualtiesUnknownDemo/` — it is `.gitignore`d. The built `.app` is ignored too.
 - This is a personal-use port of a legally-owned copy. Do not redistribute game binaries.
+- `tools/` holds the idalib RE scripts used for the Burst analysis (run via IDA Pro's
+  idalib; they load no game code, only the shipped native plugin).
 
 ## Environment
 
