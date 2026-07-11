@@ -1,1 +1,26 @@
+# ── Game binaries — NEVER commit ─────────────────────────────
+# Copyrighted game content + ~300 MB of binaries. Kept locally only.
 CasualtiesUnknownDemo/
+CasualtiesUnknown/
+
+# ── Build output — the ported macOS .app is the deliverable ───
+# Contains transplanted game data; don't push it to git.
+build/
+dist/
+*.app/
+
+# ── Unity transplant scratch ─────────────────────────────────
+UnityEmptyProject/
+EmptyMacBuild/
+
+# ── macOS ────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+._*
+.Spotlight-V100
+.Trashes
+
+# ── Editors / misc ───────────────────────────────────────────
+.vscode/
+.idea/
+*.log
