@@ -48,15 +48,21 @@ Tasks:
       (notarized, Developer ID: Isaac Marovitz, launches clean, curl download = no quarantine).
 - [x] Create bottle `CasualtiesUnknown` (Windows 10) via `WhiskyCmd` CLI.
       Real path: `~/Library/Containers/com.isaacmarovitz.Whisky/Bottles/32BC5B6E-…`
-- [~] Install **WhiskyWine/GPTK runtime** — first-run **GUI** step (CLI has no installer;
-      bottle has only Metadata.plist, no drive_c until runtime present). RISK: Whisky
-      unmaintained → runtime download URL may be dead → fallback to raw GPTK.
-- [ ] Run the demo's `CasualtiesUnknown.exe`:
-      `~/Applications/Whisky.app/Contents/Resources/WhiskyCmd run CasualtiesUnknown <exe>`
-- [ ] Confirm it renders (expect a real D3D11 device via D3DMetal, NOT NullGfxDevice) + plays
-- [ ] Measure power (`powermetrics`) vs UTM
+- [x] Install WhiskyWine/GPTK runtime — **DEAD END.** Whisky pulls the runtime from
+      `https://data.getwhisky.app/Wine/{WhiskyWineVersion.plist,Libraries.tar.gz}` — **both 404**
+      (hosting pulled; site homepage still 200). Runtime is unobtainable; Whisky can't create a
+      working prefix. **Whisky abandoned as the Wine layer.**
 
-**Status: IN PROGRESS — waiting on GUI runtime install**
+**Pivot — free Wine+translation layer (Whisky dead):**
+- Option A: **raw Apple GPTK** — official D3DMetal (best perf). Needs x86 Homebrew at /usr/local
+  + `apple/apple` tap + build `game-porting-toolkit` (compiles wine) + Apple's GPTK dmg (free
+  Apple ID login). Free but Apple-gated + heavy build.
+- Option B: **Gcenx Wine (Apple Silicon) + DXMT** — fully open-source D3D11→Metal (like DXVK).
+  No Apple login. Best fit for a free/open publishable tool. DXMT less mature than D3DMetal.
+- [ ] Chosen layer: __TBD__ → set up → run `CasualtiesUnknown.exe` → confirm real D3D11 device
+  (not NullGfxDevice) → measure power vs UTM.
+
+**Status: IN PROGRESS — Whisky dead, choosing GPTK vs Gcenx+DXMT**
 
 ---
 
