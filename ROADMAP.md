@@ -2,10 +2,16 @@
 
 Living tracker of the three viable paths. Read this **and** `README.md` for full context.
 
-**Current status:** ✅ **Path 1 WORKS** — the unmodified Windows build renders on Apple Silicon
-via **Gcenx GPTK's bundled Apple D3DMetal** (D3D11→Metal at runtime). Free stack, no CrossOver,
-no Apple download. Real D3D11 device confirmed (not NullGfxDevice); shader wall bypassed.
-Paths 2/3 (native) remain the optional deep track for max power efficiency.
+**Current status:** ✅ **BOTH paths work.**
+- **Path 1** — the unmodified Windows build renders on Apple Silicon via **Gcenx GPTK's bundled
+  Apple D3DMetal** (D3D11→Metal at runtime). Free stack, no CrossOver, no Apple download. Real
+  D3D11 device (not NullGfxDevice); shader wall *bypassed*. ~2.5 W / 120 fps / 4.06 ms.
+- **Paths 2+3** — ✅ **the shader wall was BROKEN, not bypassed.** All **60/60** shaders now have
+  Metal variants (40 stock via donor transplant; 16 custom graphs via offline Unity-HLSLcc
+  DXBC→MSL; 4 post-fx hand-recovered). The **fully native ARM64 + Metal build is PLAYABLE**
+  end-to-end — no Wine, no Rosetta, no D3D. 120 fps @ **3.2 ms** GPU frame (beats Path 1's 4.06),
+  GPU ~1.7 W at menu after the vsync fix. Remaining: broad visual QA + a head-to-head whole-package
+  power measurement vs Path 1.
 
 **Hard constraint:** the tool must rely on **free resources only** (it is meant to be a
 publishable free tool) — so **no CrossOver** (paid/proprietary). Whisky (free, from GitHub)
@@ -18,12 +24,15 @@ is the Wine layer; fallback is raw **Apple GPTK** (free, official) if Whisky's r
 - Unity **2022.3.62f3 LTS**, **Mono**, **x86-64**. Managed CIL + assets are portable.
 - **Native code port PROVEN:** the ARM64 Mono player boots and loads `Assembly-CSharp.dll`
   + all assemblies (PhysX/Input/subsystems init, version + save-path correct).
-- **Blocker = shaders.** All **60** shaders are **D3D11-only bytecode** (`shaderPlatform 4`),
-  incl. **4 custom Shader Graphs** — `BonusPass`, `DamageScreen`, `ScreenPass`,
-  `AberrationShader` — whose **source is NOT in the build** (only DXBC + ShaderLab metadata).
-  No Metal variants anywhere → native render path fails (`NullGfxDevice`; `-force-metal` →
-  "shaders will not be available" → `InitializeEngineGraphics failed`).
-- `tools/transplant.sh` works end-to-end (code runs); only the GPU side is blocked natively.
+- **The original blocker was shaders — now SOLVED.** As shipped, all **60** shaders are
+  **D3D11-only bytecode** (`shaderPlatform 4`), incl. **20 custom Shader Graphs** whose **source
+  is NOT in the build** (only DXBC + ShaderLab metadata). Untreated, the native render path fails
+  (`NullGfxDevice`; `-force-metal` → "shaders will not be available" → `InitializeEngineGraphics
+  failed`). **All 60 have since been converted to Metal offline** (Paths 2+3 below) — the DXBC
+  turned out to be sufficient; source was never needed.
+- `tools/transplant.sh` works end-to-end. ⚠️ The later runtime fixes (BCL swap, Lang/custommusic
+  symlinks, burst-bundle removal — see "Native runtime fixes") are **not yet folded into it**;
+  apply by hand on a rebuild.
 - **Env gotchas (important for any session):**
   - Repo lives in **iCloud-synced `~/Documents`** → the iCloud file provider re-stamps
     `com.apple.FinderInfo`, which **breaks `codesign`**. Build/sign the `.app` **outside**
