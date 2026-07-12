@@ -145,7 +145,7 @@ Everything else is portable — *the code was never the problem. The shaders wer
 |---|---|---|---|---|
 | **UTM (full-system emu)** | Entire PC + Win10 + DirectX + game; software GPU | ok | ~15–30 W, fans, throttling | baseline to beat |
 | **Wine + Rosetta 2 + D3DMetal** (Gcenx GPTK) | Only the game's x86-64 code; OS native, D3D11→Metal live, real GPU | **100%** | **~2.5 W total**, 120 FPS, **4.06 ms** GPU frame | ✅ **works — recommended** |
-| **Full native ARM64 + Metal** (this repo's deep track) | **Nothing.** Native engine, native Metal shaders | **100%** (60/60 shaders) | 120 FPS, **3.2 ms** GPU frame; **≈2.5 W marginal** in gameplay, GPU pinned at its **lowest** clock | ✅ **works — the impressive one** |
+| **Full native ARM64 + Metal** (this repo's deep track) | **Nothing.** Native engine, native Metal shaders | **100%** (60/60 shaders) | **27% less power than D3DMetal** on the same scene (CPU −70%: no Rosetta); ≈2.5 W marginal in gameplay | ✅ **works — the impressive one, and the most efficient** |
 
 ### Measured: native build, active gameplay (M2 Max, `powermetrics`, 20 s in the tutorial, moving)
 
@@ -160,13 +160,30 @@ The telling line is the GPU: it stayed pinned at **444 MHz — the M2 Max's lowe
 39% residency** for the whole run. The GPU never needed to clock up even once. (Before the vsync
 fix, this same scene pulled **37 W**.)
 
-> **Honesty note on power:** Path 1 and the native build are **not yet measured head-to-head on the
-> same scene with the same method** — Path 1's 2.5 W is an older whole-system figure with no
-> baseline subtraction, taken on different content. Native's GPU rail reads *higher* here (1.19 W
-> vs 0.71 W), but that is very likely scene/activity, not a regression. What *is* directly
-> comparable is GPU frame time on the same content: **3.2 ms native vs 4.06 ms translated**. Native
-> also removes Rosetta from the CPU side entirely. The head-to-head remains an open item; this
-> README will not claim a number it hasn't measured.
+### Head-to-head: native vs D3DMetal, same scene, same method ✅
+
+Both builds on the **main menu**, both fullscreen at **1512×982 / 120 Hz** (verified from each
+build's own `Screenmanager` prefs), 20 s `powermetrics` each, idle baseline (466 mW) subtracted:
+
+| Main menu | D3DMetal / Wine | **Native Metal** | Δ |
+|---|---|---|---|
+| CPU power | 2076 mW | **627 mW** | **−1450 mW (−70%)** |
+| GPU power | **569 mW** | 1456 mW | +887 mW (+156%) |
+| GPU active residency | 53.8 % | 64.6 % | (both at 444 MHz, the lowest clock) |
+| **Combined, baseline-subtracted** | 2222 mW | **1622 mW** | **−600 mW (−27%)** |
+
+**Going native cuts the game's power draw by ~27%, and every bit of that comes from the CPU.**
+Rosetta's x86→ARM64 translation tax is worth **~1.45 W** on this game; removing it drops CPU power
+by 70%. That is the single biggest efficiency line item in the whole project, and it is the payoff
+for all the shader work.
+
+**But native currently burns 2.5× the GPU power for the identical frame** — and, oddly, the native
+*menu* (1456 mW, 65% residency) costs **more GPU than native *gameplay*** (1190 mW, 39% residency).
+A menu should not be heavier than the game. That is unexplained wasted GPU work in the native path
+(extra render passes? the post-fx stack running on the menu?) and it is a concrete optimization
+target — `tools/powerprof/` exists precisely to find this class of bug, and it already caught one
+(the 37 W vsync bug) with the same smell. **Closing that gap should push native's lead well past
+27%.** Tracked as an open item below.
 
 ---
 
@@ -396,7 +413,14 @@ NEON `lib_burst_generated.dylib` is **regenerable**: these are stock packages, s
       `%USERPROFILE%\AppData\LocalLow\Orsoniks\CasualtiesUnknown\`. Native: note the transplant
       inherits the **donor's** bundle id, so it lands in
       `~/Library/Application Support/com.DefaultCompany.2DProject/`.
-- [ ] **Head-to-head power measurement**, native vs GPTK, same scene, whole package.
+- [x] **Head-to-head power measurement**, native vs GPTK — done: same scene (menu), same
+      resolution, baseline-subtracted. **Native is 27% cheaper** (1622 vs 2222 mW marginal),
+      entirely from removing Rosetta (CPU −70%).
+- [ ] **Native GPU overdraw.** Native uses 2.5× the GPU power of D3DMetal for the same frame, and
+      the native menu costs MORE GPU than native gameplay (1456 mW / 65% residency vs 1190 mW /
+      39%). Something is doing redundant GPU work on the native path. Profile with
+      `tools/powerprof/` (same tool that caught the 37 W vsync bug). Fixing it should widen
+      native's win well beyond 27%.
 - [ ] **DRM check on the retail build.** Demo scan is clean: no Steamworks/license/activation/
       tamper/checksum strings and no network endpoints in `Assembly-CSharp.dll` (the only
       `UnityWebRequest` use is `UnityWebRequestMultimedia` for the local `custommusic/` feature).
