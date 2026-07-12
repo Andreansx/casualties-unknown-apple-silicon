@@ -269,6 +269,43 @@ All machinery in [`tools/rewrap/`](tools/rewrap/) (`unity_metal_blob.py` + `inje
 
 ---
 
+## Native runtime fixes (2026-07-12 late session) — game is PLAYABLE natively
+
+Gameplay QA after the power fix surfaced three Windows-runtime leftovers; all fixed at the
+data/bundle level in `~/Applications/CU_metaltest.app` (fold into `transplant.sh` when
+rebuilding):
+
+1. **"Instantiating Chunks" infinite hang on Descend** → the transplant shipped the game's
+   **Windows-flavor .NET BCL**, whose `System.IO` P/Invokes kernel32 (`SetThreadErrorMode`
+   `EntryPointNotFoundException` ×69k — the "benign noise" was never benign). FIX: copy the
+   22 BCL assemblies (`mscorlib`, `System*`, `netstandard`, `Mono.Security`) from the donor
+   Mac build's `Managed/` over the game's. Same Unity version → same API surface. Game code /
+   Unity.* / UnityEngine.* stay the game's. Windows originals: `~/Games/bcl-backup-win/`.
+2. **"Failed to load a valid language file"** + placeholder strings everywhere → the game loads
+   `Application.dataPath + "/Lang"`; on macOS `dataPath` = `<app>/Contents`, not
+   `Contents/Resources/Data`. FIX: symlinks `Contents/Lang` + `Contents/custommusic` →
+   `Resources/Data/…`. (Backslash path variants exist in game code — `'\Lang'`,
+   `'\custommusic'`, `'\save.sv'` — but bundle-root symlinks break codesign sealing; the
+   forward-slash paths are the ones the loader actually hit. Saves self-create their file.)
+3. **Donor's `lib_burst_generated.bundle`** (Contents/PlugIns) is hash-mismatched with the
+   game's assemblies → removed (backup in bcl-backup-win); Burst falls back to managed.
+
+**OPEN BUG — the player Expie (rigged 2D-Animation character) is INVISIBLE** in tutorial and
+Descend; static NPCs (tutexp1) render; Player.log is CLEAN (no exceptions, no GpuProgram or
+pipeline errors). Facts established:
+- **NOT the shader**: converted `Shader Graphs/Limb` (the limb material) proven pixel-correct
+  on GPU via `tools/rewrap/quadharness.m` (lit/unlit/TYPE_0 variants all render; early zero
+  results were harness constant-offset artifacts — each keyword variant places
+  `_RendererColor`/`MatrixVP` at DIFFERENT `$Globals` offsets, see `VP_OFF` env).
+- Limb FS discards on final alpha==0 (alpha = `_MainTex.a × INTERP1.w`; `INTERP1 =
+  COLOR0 × _RendererColor`) — a zero anywhere in that chain = invisible with no errors.
+- Removing the donor burst bundle did NOT fix it. No ComputeShader assets exist in the game
+  (GPU deformation ruled out) — SpriteSkin deformation is CPU jobs (managed after fix 3).
+- Next leads: instrument gameplay with `tools/powerprof` (frameprof detail draws: do limb
+  draws exist and with how many verts? mono governor can query engine state via
+  `mono_runtime_invoke`); verify SpriteSkin deformed buffers are nonzero; check the roster UI
+  ("Expies 2/3/4 textures don't load") for the same root cause; compare vs wine reference.
+
 ## Resuming in a new session
 
 1. Read this file + `README.md` (esp. "Result: the shader wall").
