@@ -65,9 +65,25 @@ Setup checklist ([user] = interactive/gated, [me] = scriptable):
 - [ ] [me] Create wineprefix, run `CasualtiesUnknown.exe`, check for a real D3D11 device (not NullGfxDevice)
 - [ ] [me] Measure power (`powermetrics`) vs UTM
 
-Env so far: Rosetta ✓ active. x86 Homebrew ✗ (not yet at /usr/local). Whisky.app/bottle can be deleted later.
+**Tooling reality check (2026) — the Wine+D3D→Metal layer is a swamp:**
+- Whisky: **dead** (runtime hosting 404).
+- Apple GPTK dmg: **download broken on Apple's side** (blank page on every browser/device/network,
+  agreement accepted) → couldn't obtain Apple's D3DMetal.
+- `brew apple/apple/game-porting-toolkit`: bitrotted (needs removed `openssl@1.1`) + long wine
+  compile. x86 Homebrew installed at /usr/local; openssl@1.1 extract attempted (moot now).
+- Gcenx `game-porting-toolkit` cask: installs cleanly (no Apple, no compile) → but bundles
+  **wine-7.7 (GPTK 1.1)**, and **DXMT v0.80 needs wine ≥8** (winemetal.so is ABI-locked). Too old.
+- DXMT ships only `builtin` dlls (no wine); real use = cross-build DXMT against your own wine
+  (LLVM 15 + wine build). Heavy.
 
-**Status: IN PROGRESS — GPTK setup, step 1 (x86 Homebrew) is on the user**
+Installed so far: `/Applications/Game Porting Toolkit.app` (Gcenx wine 7.7), DXMT v0.80 dlls in
+session scratchpad, x86 Homebrew at /usr/local, Whisky.app (dead) in ~/Applications.
+
+**Next best open option (untried): DXVK + MoltenVK + Gcenx `wine@staging`** — DXVK dlls are PE
+(version-tolerant, dll-override based, NOT ABI-locked like DXMT's winemetal.so), MoltenVK is
+mature. Most robust free path; hasn't been attempted yet.
+
+**Status: BLOCKED on the translation layer — checkpoint; next attempt = DXVK+MoltenVK**
 
 ---
 
