@@ -330,11 +330,44 @@ already matches the serialized offsets. **User confirmed the port WORKS in gamep
 backups of all four `.assets`: `~/Games/assets-backup-v1/`. All of this is REQUIRED READING
 before porting the newer 6.0 Steam demo — same machinery, same traps.
 
-**OPEN (minor) — Right Mouse Button on MacBook trackpads:** the tutorial requires an RMB click;
-on a MacBook without a mouse the user couldn't proceed. Game uses Unity's new Input System.
-Leads: verify macOS two-finger "Secondary Click" reaches the game (should arrive as mouse
-button 1); the in-game console ("type help") may allow rebinding; else IL-patch
-Assembly-CSharp (dnfile/Mono.Cecil) or synthesize RMB from a key via an event tap.
+## ✅ SOLVED — Right Mouse Button on MacBook trackpads (2026-07-13)
+
+The tutorial gates on right-click ("*(RIGHT CLICK) me and drag me onto yourself*"), which a
+MacBook user couldn't perform. **No patching was needed — and the port was never at fault.**
+Two independent findings:
+
+1. **RMB does reach the game.** A two-finger *tap* does nothing when macOS "Tap to click" is
+   off; a two-finger **physical press** is a real `rightMouseDown` and the game sees it. So
+   Unity/Metal input is fine — this was a trackpad-usage issue, not a port bug.
+2. **But right-click *drag* is the real blocker**, and it's unfixable ergonomically: you cannot
+   hold a two-finger press *and* slide the cursor with the same fingers. The tutorial's item
+   interactions are all RMB-**drag**.
+
+**Fix: rebind the action to a held keyboard key.** The game is NOT on the new Input System —
+`Managed/` has no `Unity.InputSystem.dll`, only `UnityEngine.InputLegacyModule`. Input goes
+through a **data-driven bind table**: `KeyBinds::GetBind(string) -> KeyCode`, fed by
+`Application.persistentDataPath + "/keybinds.json"` whose values are KeyCode enum *names*
+(`Enum.Parse`). Right-click is the bind **`iteminteract` = `Mouse1`** (`attack` = `Mouse0`);
+there is exactly ONE KeyCode per action. `KeyBinds` has **no `SetBind`** and there is no
+in-game rebinding UI — `PreRunScript::{OpenBindsFile,ReloadBinds,ResetBinds}` (open the JSON in
+an editor, then reload) IS the developer's intended rebinding UX, so editing that file is
+supported, not a hack.
+
+Applied: `iteminteract: Mouse1 -> LeftAlt` — hold **Option** (left) to item-interact/drag.
+User-confirmed working through the tutorial drag steps. Only the LEFT Option fires, which is
+correct: Unity has distinct `LeftAlt`/`RightAlt` KeyCodes and a bind holds one. (`expanddesc` =
+`LeftShift` is precedent that modifier keys bind fine.)
+
+Tool: **`tools/rewrap/patch_keybinds.py`** (show / rebind / `--restore`). Gotcha: the bind file
+lives under the **donor's** bundle id — `~/Library/Application Support/com.DefaultCompany.2DProject/`
+— not `Orsoniks/CasualtiesUnknown`, because the transplant inherits `EmptyMac.app`'s Info.plist.
+Binds are cached in a static after the first `GetBind`, so **restart the game** after editing.
+
+Recon note: no decompiler on the box; `GetMouseButton` appears exactly ONCE in Assembly-CSharp
+(button 0, `AdaptiveButton`) — everything else is `Input.GetKey*(KeyBinds.GetBind("name"))`.
+The IL scanners used to find this are in the session scratchpad pattern: dnfile + a small
+call/ldstr walker (resolve MemberRef tokens, print the `ldstr` immediately preceding each
+`GetBind`). Reusable for the 6.0 demo port.
 
 ## Resuming in a new session
 
