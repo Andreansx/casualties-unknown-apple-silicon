@@ -262,6 +262,8 @@ All machinery in [`tools/rewrap/`](tools/rewrap/) (`unity_metal_blob.py` + `inje
       patch of `globalgamemanagers`, `vSyncCount 0→1` in the two vsync-off quality levels
       ("Very Low", "Low"). Verified: boot-time display-sync ON, **exactly 12 render passes/frame,
       GPU 8.8 → 3.2 ms/frame** at vsynced 120 fps — beats the wine reference (4.06 ms).
+      **Measured (sudo powermetrics, game focused, at menu): GPU ~1.7 W steady, 2.1 W peak —
+      down from ~37 W (−95%), machine barely warm.**
       (The game also has an in-game console command `framerate <n>` — its only
       `Application.targetFrameRate` call — usable for 60 fps battery capping.)
 
