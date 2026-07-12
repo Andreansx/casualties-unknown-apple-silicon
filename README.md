@@ -4,12 +4,89 @@ Making the Windows-only Unity game **Casualties: Unknown** run on Apple Silicon
 (M2 Max) in a way that is **more power-efficient than full-system emulation**, so
 it can actually be played on battery (e.g. on a train) without the fans spinning up.
 
-> **Status:** the native **code** port works — a native ARM64 Mono player runs the game's
-> CIL + assets (validated: assemblies load, engine boots). But it hits a hard **shader wall**:
-> the Windows build's shaders are **D3D11-only bytecode** (incl. non-recoverable custom Shader
-> Graphs), so nothing renders natively on Metal. **Conclusion for this game: ship it via
-> Wine + Rosetta 2 + D3DMetal (Whisky / Apple GPTK)**, which translates D3D→Metal at runtime
-> (shaders included) and still beats UTM on power. See "Result: the shader wall" below.
+> **Status: ✅ WORKING.** The game runs on Apple Silicon from its **unmodified Windows binary**,
+> via **Wine + Rosetta 2 + Apple's D3DMetal** (D3D11→Metal at runtime). Measured in-game on an
+> M2 Max: **~2.5 W total** (CPU 1.77 W + GPU 0.71 W) at a **120 FPS** cap with **4 ms** GPU frame
+> time — roughly **6–12× more power-efficient than UTM** (~15–30 W), and the fans stay off.
+> One command: [`tools/run-d3dmetal.sh`](#quick-start--run-your-own-copy).
+>
+> The whole stack is **free**: Rosetta 2 (built into macOS) + the Gcenx `game-porting-toolkit`
+> Homebrew cask, which conveniently **bundles Apple's D3DMetal** — no CrossOver, no paid tools,
+> no Apple-developer download.
+>
+> Background: a native ARM64 engine transplant was also proven to *run the code*, but it hits a
+> hard **shader wall** (the Windows build ships D3D11-only shaders incl. non-recoverable custom
+> Shader Graphs, so nothing renders natively on Metal). Runtime D3D→Metal translation sidesteps
+> that wall entirely. See "Result: the shader wall" below.
+
+---
+
+## Quick start — run your own copy
+
+> **Bring your own copy.** This repo ships **no game files** — you point the launcher at the
+> `.exe` from a copy of *Casualties: Unknown* that **you legally own**. Nothing here contains,
+> downloads, or distributes the game.
+
+**You need:** an Apple-Silicon Mac (M1/M2/M3/M4), macOS 14+, and [Homebrew](https://brew.sh).
+
+**1. Install Rosetta 2** (translates the game's x86-64 code; built into macOS, no download):
+```bash
+softwareupdate --install-rosetta --agree-to-license
+```
+
+**2. Install the Game Porting Toolkit** (Gcenx cask — a prebuilt Wine that **bundles Apple's
+D3DMetal**, the D3D11→Metal translator; no Apple-developer account, no compiling):
+```bash
+brew install --cask gcenx/wine/game-porting-toolkit
+```
+This drops `Game Porting Toolkit.app` in `/Applications`. It ships D3DMetal in
+`…/Contents/Resources/wine/lib/external/D3DMetal.framework` — that is what does the graphics
+translation.
+
+**3. Get this repo** (you only need `tools/run-d3dmetal.sh`):
+```bash
+git clone https://github.com/Andreansx/casualities-unknown-apple-silicon.git
+cd casualities-unknown-apple-silicon
+```
+
+**4. Launch, pointing at your own game `.exe`:**
+```bash
+./tools/run-d3dmetal.sh /path/to/CasualtiesUnknown.exe
+```
+The first run creates a Wine prefix at `~/Games/CasualtiesUnknown` (a few seconds), then the
+game opens. Want the on-screen Metal FPS/power overlay? `HUD=1 ./tools/run-d3dmetal.sh …`.
+
+**That's it.** No recompiling, no patching the game, no Windows VM.
+
+### What it's actually doing (and why it's so light)
+
+The untouched Windows `.exe` runs as a normal macOS process with **two runtime translators**
+underneath — and crucially **no emulated PC**:
+
+```
+   CasualtiesUnknown.exe  (x86-64, Direct3D 11)   ← unmodified
+        │
+        ├─ Rosetta 2   :  x86-64 → ARM64 CPU instructions  (AOT-cached)
+        └─ D3DMetal    :  Direct3D 11 → Metal, shaders included (DXBC → Metal, live)
+        │
+   your Apple-Silicon GPU + CPU  (native Metal)
+```
+
+UTM has to emulate an **entire virtual PC** — CPU, chipset, devices, the Windows kernel, and a
+software GPU — which is why it burns 15–30 W. Here, only the game's own instructions and its
+graphics API calls are translated; everything runs directly on macOS and the real GPU. That is
+the whole difference, and it's why this sits at **~2.5 W / 120 FPS** on an M2 Max.
+
+### Troubleshooting
+
+- **Crash right at startup / black window that never renders** — almost always the D3DMetal
+  library not being found. The launcher already handles this (it sets `DYLD_FALLBACK_LIBRARY_PATH`
+  to the `wine/lib/external` folder, working around an rpath bug in the Gcenx cask). If you
+  invoke Wine by hand, replicate that env — see the top of `tools/run-d3dmetal.sh`.
+- **`D3DMetal not bundled in this GPTK`** — your GPTK cask version doesn't ship D3DMetal. Use the
+  Gcenx `game-porting-toolkit` cask (it does); Apple's raw Wine build does not include it.
+- **Saves** — land in the Wine prefix under
+  `~/Games/CasualtiesUnknown/drive_c/users/crossover/AppData/LocalLow/Orsoniks/CasualtiesUnknown/`.
 
 ---
 
@@ -57,8 +134,8 @@ Burst output. Everything else is portable.
 | Approach | What runs translated | Est. package power on M2 Max | Verdict |
 |---|---|---|---|
 | **UTM (full-system emu)** | Entire PC + Win10 + DirectX + game; software GPU | ~15–30 W, fans, throttling | baseline to beat |
-| **Wine + Rosetta 2** (Whisky / Apple GPTK) | Only the game's x86-64 code; OS native, DirectX→Metal, real GPU. Rosetta AOT-caches translations + uses Apple-Silicon TSO | ~3–8 W | quick win |
-| **Native Mono player swap** | Nothing — native ARM64 engine runs the original CIL + assets | ~2–5 W | the prize |
+| **Wine + Rosetta 2 + D3DMetal** (Gcenx GPTK) | Only the game's x86-64 code; OS native, DirectX→Metal, real GPU. Rosetta AOT-caches translations + uses Apple-Silicon TSO | **~2.5 W (measured)** | ✅ **works — the answer** |
+| **Native Mono player swap** | Nothing — native ARM64 engine runs the original CIL + assets | ~2–5 W (est.) | blocked by the shader wall (see below) |
 
 ## The one arch-specific artifact: Unity Burst
 
@@ -169,19 +246,42 @@ The transplant was built and run end-to-end. Findings from the real launch (`Pla
 **Therefore a pure data-swap cannot produce a fully-rendering native port for this game.**
 The code is portable; the compiled shaders are platform-locked to D3D.
 
-### The shipping path: Wine + Rosetta 2 + D3DMetal
+### The shipping path: Wine + Rosetta 2 + D3DMetal ✅ (this is what works)
 
-Run the **original, unmodified** Windows build under **Whisky** or **Apple Game Porting
-Toolkit**. D3DMetal (or DXVK + MoltenVK) translates **D3D11 → Metal at runtime, including the
-shaders** (DXBC → Metal), so the shader wall disappears — the whole D3D pipeline is translated
-live. Still ~3–8 W (Rosetta AOT + real GPU), still far below UTM's full-system emulation.
+Run the **original, unmodified** Windows build under the **Gcenx Game Porting Toolkit** (Wine +
+Rosetta 2). Apple's **D3DMetal** translates **D3D11 → Metal at runtime, including the shaders**
+(DXBC → Metal), so the shader wall disappears — the whole D3D pipeline is translated live.
+One-command launcher: [`tools/run-d3dmetal.sh`](#quick-start--run-your-own-copy).
 
-### Hardcore-hobby alternative (partial)
+**Measured result (M2 Max, in the intro/gameplay):**
+- Real D3D11 device via D3DMetal (`Renderer: AMD Compatibility Mode` — D3DMetal's identity;
+  runs on the Metal backend), **not** `NullGfxDevice`. The 4 custom Shader Graphs render fine —
+  D3DMetal translates them live because it sees the compiled DXBC at runtime.
+- **~2.5 W total** (CPU 1.77 W + GPU 0.71 W, ANE 0). **120 FPS** (ProMotion-capped), GPU frame
+  time **4.06 ms** (≈246 FPS of headroom). Metal HUD reports GPTK 3.0 / D3D11, Draw 53.
+- Far below UTM's ~15–30 W full-system emulation, and fans stay off — the original battery goal,
+  comfortably met.
+
+> **Tooling notes.** Two other free routes were dead ends: **Whisky** (its Wine runtime hosting
+> now 404s) and **DXVK + MoltenVK** (loads, but crashes in `D3D11CoreCreateDevice` — couldn't
+> reach Vulkan through GPTK's winevulkan). Apple's raw GPTK dmg download was also broken. The
+> working combination is the **Gcenx cask specifically, because it bundles D3DMetal**.
+
+### Hardcore-hobby alternative (fully native, optional)
 
 Native swap + **Metal shader injection**: build a Mac URP project, extract Metal-compiled URP/
 built-in shaders, inject them into the game data by GUID, and patch graphics-device selection.
-Feasible for package shaders; the custom Shader Graphs stay broken (pink) with no source.
-Multi-day RE for an imperfect result — a fun challenge, not a clean port.
+Feasible for the ~56 stock package shaders (**Path 2**, ~95%). The 4 custom Shader Graphs have no
+source — but you can still recover them: **capture the Metal that D3DMetal generates from their
+DXBC at runtime** and re-wrap it into native Unity Metal shaders (**Path 3-lite**).
+
+**Path 3-lite step 1 is done (2026-07-12):** all four custom post-fx (`BonusPass`, `ScreenPass`,
+`DamageScreen`, `AberrationShader`) are harvested as Metal (AIR) and identified. A pure-C
+`DYLD_INSERT_LIBRARIES` shim (`tools/harvest/shim.m`, run via `tools/harvest-shaders.sh`) dumps
+every metallib D3DMetal builds at runtime; `tools/harvest/identify.sh` maps them to the four by
+fragment texture-sample count (20/13/8/5), cross-checked against the DXBC via UnityPy. Full write-up
+in [`docs/native-shader-harvest.md`](docs/native-shader-harvest.md). Still a for-sport track — Path 1
+already runs the game at ~2.5 W, so going native buys at most a fraction of a watt.
 
 ## Open questions / risks
 

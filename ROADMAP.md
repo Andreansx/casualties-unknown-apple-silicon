@@ -2,8 +2,10 @@
 
 Living tracker of the three viable paths. Read this **and** `README.md` for full context.
 
-**Current decision:** pursue **Path 1 (Whisky)** now — as the working game + a rendering
-reference + a power baseline. Paths 2/3 (native) are the deep track to attempt afterward.
+**Current status:** ✅ **Path 1 WORKS** — the unmodified Windows build renders on Apple Silicon
+via **Gcenx GPTK's bundled Apple D3DMetal** (D3D11→Metal at runtime). Free stack, no CrossOver,
+no Apple download. Real D3D11 device confirmed (not NullGfxDevice); shader wall bypassed.
+Paths 2/3 (native) remain the optional deep track for max power efficiency.
 
 **Hard constraint:** the tool must rely on **free resources only** (it is meant to be a
 publishable free tool) — so **no CrossOver** (paid/proprietary). Whisky (free, from GitHub)
@@ -79,11 +81,55 @@ Setup checklist ([user] = interactive/gated, [me] = scriptable):
 Installed so far: `/Applications/Game Porting Toolkit.app` (Gcenx wine 7.7), DXMT v0.80 dlls in
 session scratchpad, x86 Homebrew at /usr/local, Whisky.app (dead) in ~/Applications.
 
-**Next best open option (untried): DXVK + MoltenVK + Gcenx `wine@staging`** — DXVK dlls are PE
-(version-tolerant, dll-override based, NOT ABI-locked like DXMT's winemetal.so), MoltenVK is
-mature. Most robust free path; hasn't been attempted yet.
+**BREAKTHROUGH (2026-07-12): the Gcenx GPTK cask already BUNDLES Apple's D3DMetal** — free,
+no Apple developer download needed. Located at:
+`/Applications/Game Porting Toolkit.app/Contents/Resources/wine/lib/external/`
+→ `D3DMetal.framework` + `libd3dshared.dylib`. This is the native, best-performing
+D3D11/D3D12→Metal translator (strictly better than DXVK+MoltenVK). **So the whole DXVK detour
+is unnecessary.** DXVK was tried and it loaded (spoofs fileVersion 10.0.17763.1) but **crashed
+in `D3D11CoreCreateDevice`** — it couldn't reach Vulkan through GPTK's winevulkan/MoltenVK.
+DXVK is abandoned; D3DMetal is the path.
 
-**Status: BLOCKED on the translation layer — checkpoint; next attempt = DXVK+MoltenVK**
+**The one gotcha (rpath bug in the Gcenx cask):** `wine/lib/wine/x86_64-unix/d3d11.so` links
+`@rpath/libd3dshared.dylib` with `RPATH=@loader_path` (the `x86_64-unix/` dir), but the dylib
+lives in `wine/lib/external/`. Out of the box the builtin d3d11 → D3DMetal path therefore
+crashes at device creation. **Fix:** set
+`DYLD_FALLBACK_LIBRARY_PATH=".../wine/lib/external:.../wine/lib:/usr/lib:/usr/local/lib"`
+so dlopen finds `libd3dshared.dylib` by leaf name. Force builtin d3d11 with
+`WINEDLLOVERRIDES="d3d11=b;d3d10core=b;dxgi=b"`.
+
+Working launch recipe (prefix `~/Games/CasualtiesUnknown`, wine = GPTK `wine/bin/wine64`,
+run under `arch -x86_64`):
+```
+export WINEPREFIX=~/Games/CasualtiesUnknown
+export WINEDLLOVERRIDES="d3d11=b;d3d10core=b;dxgi=b"
+export DYLD_FALLBACK_LIBRARY_PATH="$GPTK/wine/lib/external:$GPTK/wine/lib:/usr/lib:/usr/local/lib"
+export MTL_HUD_ENABLED=1   # optional Metal HUD overlay
+arch -x86_64 "$GPTK/wine/bin/wine64" CasualtiesUnknown.exe
+```
+
+**Status: ✅ SUCCESS (2026-07-12 04:1x).** Game boots fully under GPTK wine + D3DMetal:
+```
+GfxDevice: creating device client; threaded=1; jobified=1
+Direct3D 11.0 [level 11.1] · Renderer: AMD Compatibility Mode (ID=0x66af) · Vendor: ATI · VRAM 25559 MB
+- Loaded All Assemblies, in 0.397 s ; Input initialized ; [PhysX] 4 workers
+```
+Process healthy at ~36% CPU, no crash. "AMD Compatibility Mode" = D3DMetal's device identity
+(runs on the M2 Max Metal backend; VRAM 25559 MB = unified memory). Only warning is a benign
+`IDXGIResource::GetSharedHandle` D3DMetal stub — game ignores it. Visual confirmation of pixels
+was blocked only because the Mac auto-locked (screenshot showed the login screen, not the game).
+
+**Remaining to close the original goal:**
+- [x] [user] Confirmed rendering + playable — intro cinematic + dialogue render perfectly,
+      full-screen, audio works. (Screenshot with Metal HUD captured 2026-07-12.)
+- [x] **Power measured (D3DMetal, in-game): CPU 1774 mW + GPU 707 mW + ANE 0 = 2481 mW ≈ 2.5 W.**
+      Crushes the ~3–8 W estimate and UTM's ~15–30 W (≈6–12× more efficient). Genuinely
+      battery/train-friendly.
+- [x] **Perf (Metal HUD): 120.00 FPS (ProMotion-capped), GPU frame time 4.06 ms (~246 FPS
+      headroom), 1512×982, Metal 556 MB / App 1.11 GB, Draw 53, present mode "Direct".**
+      GPTK 3.0, D3D11. The M2 Max is barely working.
+- [x] Launcher script `tools/run-d3dmetal.sh` (one-command; sets WINEDLLOVERRIDES + the DYLD
+      rpath fix, runs under `arch -x86_64`).
 
 ---
 
@@ -116,16 +162,44 @@ compiled **DXBC**: `DXBC → SPIR-V → MSL` (spirv-cross), then repackage into 
 blobs (offsets/lengths/keyword-variants/passes) and inject by GUID. This is hand-building
 offline exactly what D3DMetal does at runtime.
 
+**Path 3-lite (recommended front-end): harvest D3DMetal's runtime output** instead of
+hand-transpiling — record the Metal that D3DMetal generates from the game's DXBC while it runs
+under GPTK, then re-wrap into Unity Metal shaders by GUID. Removes all "does the transpile
+validate on Metal?" risk. **Full plan + results: [`docs/native-shader-harvest.md`](docs/native-shader-harvest.md).**
+
 - **Rendering:** 100%. **Power/purity:** best.
 - **Effort:** high. **Risk:** high (per-variant/pass transpile + exact re-serialization).
 
-Tasks:
-- [ ] Decompress each custom shader's DXBC variants from `compressedBlob`
-- [ ] `DXBC → SPIR-V → MSL` per variant/pass
-- [ ] Repackage as a Unity Metal shader; inject by GUID; set platform tag
-- [ ] Validate each of the 4 renders correctly
+**Step-1 tasks — ✅ DONE (2026-07-12): frame capture taken + all 4 post-fx pipelines located & harvested.**
+- [x] **Xcode Metal frame capture.** `CAPTURE=1 tools/harvest-shaders.sh` runs the game with
+      `MTL_CAPTURE_ENABLED=1` and writes `~/Games/d3dm-harvest/frame-NN.gputrace` (1.3 GB, real
+      swapchain frames + every pipeline; opens in Xcode). Capture is stable ONLY without swizzling,
+      so it's capture-only — the shim just starts/stops an `MTLCaptureManager` GPU-trace via the
+      ObjC runtime. (Capture + swizzle together crash the game; each alone is fine.)
+- [x] Harvest D3DMetal's runtime Metal output via a **library-dump shim** (`tools/harvest/shim.m`,
+      launched by `tools/harvest-shaders.sh`) that swizzles `MTLDevice newLibraryWith*` and dumps
+      every AIR metallib D3DMetal builds. 37 dumped in a 45 s stable run. **Key: the shim links no
+      frameworks (pure C + libobjc), else it steals wine's preloader low-memory and crashes; it
+      reaches Metal lazily once D3DMetal has loaded it. Universal arm64+x86_64; exec wine directly
+      (no `arch`, which strips DYLD_*).**
+- [x] Locate the 4 post-fx **pipelines** (`tools/harvest/identify.sh`), two agreeing methods:
+      (1) fragment **texture-sample count**, preserved 1:1 DXBC→AIR (D3DMetal names every entry
+      `main`, so names are useless) — BonusPass=20, ScreenPass=13, DamageScreen=8, AberrationShader=5,
+      all distinct → unambiguous; DXBC fingerprints from UnityPy (`globalgamemanagers.assets`, path
+      IDs 68–71). (2) a **runtime PSO log** (shim's `HARVEST_HOOK_PSO`, on by default in dump mode)
+      that ties each `MTLRenderPipelineState`→its fragment metallib. Result:
+      BonusPass=`data-0019`, ScreenPass=`data-0022`, DamageScreen=`data-0021`, Aberration=`data-0024`
+      (3 share fullscreen VS `data-0020`; ScreenPass VS `data-0023`). AberrationShader AIR confirmed
+      = chromatic aberration. Artifacts + `mapping.json` in `~/Games/d3dm-harvest/identified/`.
+- [x] Readable disassembly per shader: `xcrun metal-objdump --disassemble` (Metal Toolchain).
 
-**Status: not started**
+**Step-2 tasks (the hard tail) — not started:**
+- [ ] Learn D3DMetal's binding model → Unity-native Metal binding remap (diff a stock shader
+      present in both a Mac URP build and under D3DMetal). D3DMetal uses argument-buffer heaps
+      (`res_desc_heap_ab`/`top_level_global_ab`); Unity-native uses its own index convention.
+- [ ] Re-serialize the harvested AIR into Unity's Metal shader sub-program container (UnityPy),
+      tag platform = Metal (14), inject by GUID (reuses Path 2 injection machinery).
+- [ ] Validate each of the 4 renders correctly on the native ARM64 transplant build.
 
 ---
 

@@ -13,6 +13,15 @@ dist/
 UnityEmptyProject/
 EmptyMacBuild/
 
+# ── Shader-harvest artifacts — derived from the game's shaders, NEVER commit ──
+# The metallibs/AIR/DXBC are D3DMetal's runtime translation of the game's own shaders.
+# Tooling (tools/harvest/*.m,*.sh,*.py) is fine to commit; the harvested binaries are not.
+d3dm-harvest/
+*.metallib
+*.air
+*.dxbc
+libharvestshim.dylib
+
 # ── macOS ────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
