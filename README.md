@@ -145,14 +145,28 @@ Everything else is portable — *the code was never the problem. The shaders wer
 |---|---|---|---|---|
 | **UTM (full-system emu)** | Entire PC + Win10 + DirectX + game; software GPU | ok | ~15–30 W, fans, throttling | baseline to beat |
 | **Wine + Rosetta 2 + D3DMetal** (Gcenx GPTK) | Only the game's x86-64 code; OS native, D3D11→Metal live, real GPU | **100%** | **~2.5 W total**, 120 FPS, **4.06 ms** GPU frame | ✅ **works — recommended** |
-| **Full native ARM64 + Metal** (this repo's deep track) | **Nothing.** Native engine, native Metal shaders | **100%** (60/60 shaders) | 120 FPS, **3.2 ms** GPU frame; GPU rail ~1.7 W at menu | ✅ **works — the impressive one** |
+| **Full native ARM64 + Metal** (this repo's deep track) | **Nothing.** Native engine, native Metal shaders | **100%** (60/60 shaders) | 120 FPS, **3.2 ms** GPU frame; **≈2.5 W marginal** in gameplay, GPU pinned at its **lowest** clock | ✅ **works — the impressive one** |
 
-> **Honesty note on power:** the two are not measured head-to-head on the same scene. Path 1's
-> 2.5 W is a whole-package figure in gameplay; the native build's 1.7 W is the **GPU rail at the
-> menu**. What *is* directly comparable is GPU frame time on the same content: **3.2 ms native vs
-> 4.06 ms translated**. Native removes Rosetta from the CPU side entirely, so it should win on
-> total package power too — but that measurement hasn't been run yet, and this README won't claim
-> a number it doesn't have.
+### Measured: native build, active gameplay (M2 Max, `powermetrics`, 20 s in the tutorial, moving)
+
+| | Idle baseline | Game (moving) | **Game's marginal cost** |
+|---|---|---|---|
+| CPU power | 394 mW | 1768 mW | **1374 mW** |
+| GPU power | 70 mW | 1190 mW | **1120 mW** |
+| **Combined (CPU+GPU+ANE)** | **466 mW** | **2966 mW** | **≈ 2.50 W** |
+| GPU active residency | 3.5 % | 39 % | +35 pts |
+
+The telling line is the GPU: it stayed pinned at **444 MHz — the M2 Max's lowest DVFS state — at
+39% residency** for the whole run. The GPU never needed to clock up even once. (Before the vsync
+fix, this same scene pulled **37 W**.)
+
+> **Honesty note on power:** Path 1 and the native build are **not yet measured head-to-head on the
+> same scene with the same method** — Path 1's 2.5 W is an older whole-system figure with no
+> baseline subtraction, taken on different content. Native's GPU rail reads *higher* here (1.19 W
+> vs 0.71 W), but that is very likely scene/activity, not a regression. What *is* directly
+> comparable is GPU frame time on the same content: **3.2 ms native vs 4.06 ms translated**. Native
+> also removes Rosetta from the CPU side entirely. The head-to-head remains an open item; this
+> README will not claim a number it hasn't measured.
 
 ---
 
