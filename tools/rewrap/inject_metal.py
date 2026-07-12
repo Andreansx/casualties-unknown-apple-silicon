@@ -110,12 +110,21 @@ def rewrap_shader(d, frag_msl, vert_msl, name):
     report = []
     for i, e in enumerate(entries):
         t = e["type"]
-        if t == 15:
-            e = {"type": METAL_VS, "seg": e["seg"], "raw": build_metal_program(vert_msl, METAL_VS)}
-            report.append(f"entry[{i}] VS DXBC(15) -> Metal VS(23) {len(e['raw'])}B")
-        elif t == 17:
-            e = {"type": METAL_FS, "seg": e["seg"], "raw": build_metal_program(frag_msl, METAL_FS)}
-            report.append(f"entry[{i}] FS DXBC(17) -> Metal FS(24) {len(e['raw'])}B")
+        if t in (15, 17):
+            # Carry the original entry's trailing input-binding/channel structure across the swap:
+            # it lives after the program payload (bounded by payloadLen@28) and is what the engine's
+            # GpuProgram loader reads to bind vertex channels. Dropping it => "Failed to load GpuProgram".
+            raw = e["raw"]
+            orig_payload_len = struct.unpack_from("<I", raw, 28)[0]
+            trailing = raw[32 + orig_payload_len:]
+            if t == 15:
+                new_raw = build_metal_program(vert_msl, METAL_VS, trailing)
+                report.append(f"entry[{i}] VS DXBC(15) -> Metal VS(23) {len(new_raw)}B (+{len(trailing)}B channel tail)")
+                e = {"type": METAL_VS, "seg": e["seg"], "raw": new_raw}
+            else:
+                new_raw = build_metal_program(frag_msl, METAL_FS, trailing)
+                report.append(f"entry[{i}] FS DXBC(17) -> Metal FS(24) {len(new_raw)}B (+{len(trailing)}B binding tail)")
+                e = {"type": METAL_FS, "seg": e["seg"], "raw": new_raw}
         else:
             report.append(f"entry[{i}] type{t} param table reused verbatim {len(e['raw'])}B")
         new_entries.append(e)
@@ -129,15 +138,22 @@ def rewrap_shader(d, frag_msl, vert_msl, name):
             assert pm["entry_name"] == "xlatMtlMain", pm
             assert pm["source"] in (frag_msl, vert_msl), f"entry[{i}] source mismatch"
 
+    # Unity stores shader sub-program blobs LZ4-block-compressed (no size prefix; the raw size
+    # lives in decompressedLengths). The engine ALWAYS LZ4-decompresses — an uncompressed blob,
+    # even with compressedLen==decompressedLen, yields "Failed to find expected binary data".
+    comp = lz4.block.compress(new_blob, mode="high_compression", store_size=False)
+    assert lz4.block.decompress(comp, uncompressed_size=len(new_blob)) == new_blob
+
     d["platforms"] = [14]
     d["offsets"] = [[0]]
-    d["compressedLengths"] = [[len(new_blob)]]
+    d["compressedLengths"] = [[len(comp)]]
     d["decompressedLengths"] = [[len(new_blob)]]
-    d["compressedBlob"] = list(new_blob)
+    d["compressedBlob"] = list(comp)
 
     counts = {}
     remap_program_types(d["m_ParsedForm"], counts)
-    report.append(f"platforms [4]->[14]; remapped GpuProgramType {counts}; blob {len(blob)}->{len(new_blob)}B (uncompressed)")
+    report.append(f"platforms [4]->[14]; remapped GpuProgramType {counts}; "
+                  f"blob {len(blob)}->{len(new_blob)}B raw / {len(comp)}B lz4")
     return report
 
 

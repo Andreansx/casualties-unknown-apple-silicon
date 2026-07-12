@@ -216,10 +216,23 @@ All machinery in [`tools/rewrap/`](tools/rewrap/) (`unity_metal_blob.py` + `inje
 - [x] **On-GPU validation** via a standalone Metal harness (`newLibraryWithSource:` + Unity's exact
       binding layout + fullscreen draw): all 4 build a valid VS+FS pipeline and execute with no GPU
       error; `AberrationShader` renders correct chromatic-aberration fringing (channel split ≤215).
-- [ ] **Full in-game render — blocked on Path 2.** The native player only inits Metal graphics once
-      *every* drawn shader has a Metal variant; the ~56 stock URP/built-in shaders still need theirs
-      (Path 2). Until then the harness is the proof. Once Path 2 lands, drop the injected
-      `globalgamemanagers.assets` into the transplant build and the 4 post-fx should render natively.
+- [x] **✅ VALIDATED IN THE REAL NATIVE BUILD (`~/Applications/CasualtiesUnknown.app`) ON METAL.**
+      Two more discoveries closed it: (a) a Unity code entry ends with a **trailing input-binding/
+      channel table** (10 B for a no-attribute fullscreen VS/FS) that is platform-independent and
+      MUST be carried across the D3D→Metal swap — omitting it gives "Failed to load GpuProgram from
+      binary shader data" even with perfect MSL; (b) the blob is stored **LZ4-compressed** (raw
+      storage → "Failed to find expected binary data"). Both fixed in `inject_metal.py`; the builder
+      now reproduces real native entries byte-for-byte. To make the Windows-origin transplant target
+      Metal, `tools/rewrap/patch_ggm_metal.py` surgically patches `globalgamemanagers`
+      (`shaderPlatform 4→14` + `BuildSettings.m_GraphicsAPIs 2→16`). Result: the native ARM64 player
+      **boots on a real Metal device (M2 Max)** and the engine's GPU shader loader accepts all 4
+      re-wrapped shaders — **0 GpuProgram-load errors; none of the 4 are "not supported on this GPU"**
+      (a control Shader Graph left in D3D11, `WallHole`, still is). The 4 crossed from unsupported to
+      loaded natively.
+- [ ] **Full-frame visual (all pixels) — needs Path 2.** The scene still can't fully draw because
+      the other ~30 game shaders (sprites/URP/TextMeshPro/other Shader Graphs, e.g. `WallHole`) are
+      still D3D11-only. Converting them (Path 2, same machinery) unblocks a complete native frame in
+      which the 4 post-fx are visible in gameplay.
 
 ---
 

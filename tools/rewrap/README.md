@@ -50,18 +50,43 @@ python3 inject_metal.py --assets .../globalgamemanagers.assets --msl ./msl \
 
 Needs a Python env with `UnityPy` + `lz4`.
 
+To make a native transplant actually run on Metal (so the injected shaders load), also patch
+`globalgamemanagers` — the Windows-origin build declares itself D3D11-only:
+
+```bash
+python3 patch_ggm_metal.py <App>/Contents/Resources/Data/globalgamemanagers
+# shaderPlatform 4->14  +  BuildSettings.m_GraphicsAPIs 2->16 (Metal), as surgical binary edits
+```
+
+Then re-sign the app (`codesign --force --deep --sign - <App>`).
+
 ## Validation status
 
 - **Container round-trip:** the injected assets reload via UnityPy with `platforms=['Metal']`,
   entry types `[2,23,3,24,23]`, and intact MSL. ✅
-- **On-GPU:** `harness.m` (a standalone Metal program, in the session scratchpad) compiles each
-  VS+FS via `newLibraryWithSource:` — exactly as Unity does — builds the render pipeline with
-  Unity's binding layout, and runs a fullscreen draw. All four execute with no GPU error;
-  `AberrationShader` produces the expected chromatic-aberration fringing. ✅
-- **Full in-game render:** **gated on Path 2.** The native player only initialises Metal graphics
-  once *every* shader it draws has a Metal variant; the other ~56 stock URP/built-in shaders still
-  need their Metal variants (Path 2) before the game will boot far enough to show these four. Until
-  then, on-GPU harness validation is the proof.
+- **On-GPU (standalone):** `harness.m` (a standalone Metal program, in the session scratchpad)
+  compiles each VS+FS via `newLibraryWithSource:` — exactly as Unity does — builds the render
+  pipeline with Unity's binding layout, and runs a fullscreen draw. All four execute with no GPU
+  error; `AberrationShader` produces the expected chromatic-aberration fringing. ✅
+- **In the real native player (the decisive test):** with `patch_ggm_metal.py` applied to make the
+  transplant target Metal, `~/Applications/CasualtiesUnknown.app` **boots on a real Metal device
+  (M2 Max)** and the engine's own GPU shader loader accepts all four re-wrapped shaders — **0
+  "Failed to load GpuProgram" errors, and none of the four appear as "not supported on this GPU"**
+  (a control Shader Graph left in D3D11, `WallHole`, still does). The four crossed from unsupported
+  to fully loaded natively. ✅
+- **Full-frame visual render:** still needs the other ~30 game shaders (sprites/URP/TextMeshPro/
+  other Shader Graphs) given Metal variants — that is **Path 2**. The scene can't fully draw until
+  they're converted, but the four custom post-fx themselves are validated in-engine.
+
+### The critical serialization detail
+
+A Unity code entry is `wrapper(32B) | 0xF00DCAFE payload | trailing input-binding/channel table`.
+The trailing table (10B for a no-attribute fullscreen VS/FS; larger when the VS has vertex
+attributes) is **platform-independent** and MUST be carried across the D3D→Metal swap — the engine
+reads it after the source, and omitting it yields "Failed to load GpuProgram from binary shader
+data" even when the MSL is perfect. `inject_metal.py` preserves each original entry's trailing
+bytes. Also: the blob is stored **LZ4-block-compressed** (`compressedLen < decompressedLen`); an
+uncompressed blob yields "Failed to find expected binary data".
 
 ## Recovering the MSL (regenerate `msl/` locally)
 

@@ -61,8 +61,17 @@ D3D_FS   = 17
 D3D_TO_METAL = {D3D_VS: METAL_VS, D3D_FS: METAL_FS}
 
 
-def build_metal_program(msl_source: str, gpu_program_type: int) -> bytes:
-    """Serialise MSL source into one Unity Metal sub-program entry (outer wrapper + payload)."""
+def build_metal_program(msl_source: str, gpu_program_type: int, trailing: bytes = b"") -> bytes:
+    """Serialise MSL source into one Unity Metal sub-program entry (outer wrapper + payload).
+
+    `trailing` is the input-binding / vertex-channel structure that follows the program payload
+    in a real Unity code entry. It is platform-independent (it describes the ShaderLab pass'
+    vertex channels), so when swapping a D3D entry for a Metal one we MUST carry the original
+    entry's trailing bytes across — the engine's GpuProgram loader reads it after the source, and
+    a missing/short one makes it reject the program ("Failed to load GpuProgram from binary shader
+    data"). For a fullscreen post-fx VS (no vertex attributes) it is 10 zero-ish bytes; a VS with
+    N attributes carries an N-entry channel map.
+    """
     src = msl_source.encode("utf-8")
     # payload: 48-byte header (12 dwords), then name (12 bytes), then source
     header = struct.pack(
@@ -74,16 +83,12 @@ def build_metal_program(msl_source: str, gpu_program_type: int) -> bytes:
     name = ENTRY_NAME + b"\0"                    # 12 bytes -> ends exactly at SRC_OFFSET
     assert NAME_OFFSET + len(name) == SRC_OFFSET, (NAME_OFFSET, len(name), SRC_OFFSET)
     payload_core = header + name + src           # length == SRC_OFFSET + len(src)
-    payload_len = len(payload_core)
-    # source terminator + 4-byte alignment padding (matches stock shaders' trailing zeros)
-    blob = payload_core + b"\0"
-    while len(blob) % 4 != 0:
-        blob += b"\0"
+    payload_len = len(payload_core)              # bounds the f00dcafe payload (source ends here)
 
     wrapper = struct.pack("<II", WRAPPER_MAGIC, gpu_program_type)
     wrapper += struct.pack("<5I", 0, 0, 0, 0, 0)  # stats
     wrapper += struct.pack("<I", payload_len)
-    return wrapper + blob
+    return wrapper + payload_core + trailing
 
 
 def parse_metal_program(entry: bytes) -> dict:
