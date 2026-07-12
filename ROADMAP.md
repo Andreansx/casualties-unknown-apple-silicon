@@ -53,16 +53,21 @@ Tasks:
       (hosting pulled; site homepage still 200). Runtime is unobtainable; Whisky can't create a
       working prefix. **Whisky abandoned as the Wine layer.**
 
-**Pivot — free Wine+translation layer (Whisky dead):**
-- Option A: **raw Apple GPTK** — official D3DMetal (best perf). Needs x86 Homebrew at /usr/local
-  + `apple/apple` tap + build `game-porting-toolkit` (compiles wine) + Apple's GPTK dmg (free
-  Apple ID login). Free but Apple-gated + heavy build.
-- Option B: **Gcenx Wine (Apple Silicon) + DXMT** — fully open-source D3D11→Metal (like DXVK).
-  No Apple login. Best fit for a free/open publishable tool. DXMT less mature than D3DMetal.
-- [ ] Chosen layer: __TBD__ → set up → run `CasualtiesUnknown.exe` → confirm real D3D11 device
-  (not NullGfxDevice) → measure power vs UTM.
+**Pivot — CHOSEN: raw Apple GPTK (D3DMetal)** (free, best perf; Whisky dead).
 
-**Status: IN PROGRESS — Whisky dead, choosing GPTK vs Gcenx+DXMT**
+Setup checklist ([user] = interactive/gated, [me] = scriptable):
+- [ ] [user] Install **x86_64 Homebrew** under Rosetta (needs sudo):
+      `arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+- [ ] [me] `arch -x86_64 /usr/local/bin/brew tap apple/apple https://github.com/apple/homebrew-apple`
+- [ ] [me] `arch -x86_64 /usr/local/bin/brew install apple/apple/game-porting-toolkit` (compiles wine, ~30 min)
+- [ ] [user] Download **Game Porting Toolkit** dmg from developer.apple.com (free Apple ID), mount it
+- [ ] [me] Copy D3DMetal libs from the dmg into the wine prefix
+- [ ] [me] Create wineprefix, run `CasualtiesUnknown.exe`, check for a real D3D11 device (not NullGfxDevice)
+- [ ] [me] Measure power (`powermetrics`) vs UTM
+
+Env so far: Rosetta ✓ active. x86 Homebrew ✗ (not yet at /usr/local). Whisky.app/bottle can be deleted later.
+
+**Status: IN PROGRESS — GPTK setup, step 1 (x86 Homebrew) is on the user**
 
 ---
 
