@@ -1,37 +1,53 @@
 # tools/rewrap — native Metal re-wrap of the custom Shader Graphs + stock transplant
 
-Three tools now live here:
+Tools living here:
 
 - **`inject_metal.py`** — the original Path 3-lite re-wrap of the 4 custom post-fx from
   hand-recovered MSL (see below).
 - **`transplant_stock.py`** — Path 2 / Bucket A: wholesale swap of the ~40 stock shaders
   (URP/2D/TMP) from a version-matched Mac donor build, by shader name. See `tools/donor/`.
-- **`inject_custom_metal.py`** — Path 3 / Bucket B: the **generalized, fully automatic**
-  re-wrap of the remaining 16 custom Shader Graphs. No harvest, no hand transcription:
-  it translates every keyword variant's DXBC to Unity-ABI MSL with **Unity's own HLSLcc**
-  (`tools/hlslcc/build.sh`), which is exactly the translator Unity's editor uses for Metal
-  (hence `xlatMtlMain`, `FGlobals_Type`, `Mtl_FragmentIn` — byte-level ABI parity).
-  Supporting modules: `entrytools.py` (generic code-entry/keyword/blob (de)serializer),
-  `dxbc2msl.py` (synthesizes the RDEF reflection chunk Unity strips from builds — from the
-  SHDR `dcl_*` instructions + the shader's own serialized param tables — then drives the
-  HLSLcc CLI).
+- **`inject_custom_metal2.py`** — **USE THIS ONE** — Path 3 / Bucket B v2: fully automatic
+  re-wrap of the 16 custom Shader Graphs, translating every keyword variant's DXBC to
+  Unity-ABI MSL with **Unity's own HLSLcc** (`tools/hlslcc/build.sh` — the same translator
+  Unity's editor uses, hence `xlatMtlMain`/`FGlobals_Type` ABI parity). v2 sources the DXBC
+  from the untouched **Windows build** and fixes the two v1 bugs that made every converted
+  shader receive garbage constants and, for shaders with unused VS inputs, scrambled vertex
+  attributes (THE invisible-player-Expie bug — see ROADMAP "Native runtime fixes").
+  Supporting modules: `entrytools.py` (code-entry/keyword/blob (de)serializer), `dxbc2msl.py`
+  (synthesizes the stripped RDEF chunk, drives the HLSLcc CLI), `paramblob.py` (binary
+  parser/serializer for the per-variant **parameter-blob** entries, wrapper types 2/3/4).
+- **`inject_custom_metal.py`** — v1, kept for history. Two FATAL bugs, do not use:
+  1. RDEF built from `m_CommonParameters` only, ignoring the per-variant parameter blobs
+     (where e.g. `_RendererColor` lives), and no reconciliation between the serialized CB
+     tables (which the Metal runtime writes constants by) and HLSLcc's REPACKED MSL structs;
+  2. trailing-table attribute values from the D3D ISGN register.
 
-  Key format facts encoded there (all verified against donor/game entry pairs):
+  Key format facts (all byte-verified against donor/game/Windows entry pairs):
   - a code entry is `magic 0x0C0A75BA | type | stats[4] | keywordCount | {len,str,pad4}* |
     payloadLen | payload | trailing`;
-  - the trailing vertex-channel table is **platform-dependent** when the VS has attributes:
-    each (channel, value) pair's value on Metal = **the channel's ISGN register + 13**
-    (verified on 56 stock entry pairs, 0 contradictions);
+  - **constants**: Unity's Metal runtime writes uniforms at the byte offsets recorded in the
+    SERIALIZED tables — `m_CommonParameters` ∪ the variant's parameter-blob entry
+    (`progX.m_ParameterBlobIndices[tier][i]` → blob entry index). The generated MSL CB struct
+    layout must therefore MATCH those offsets; v2 re-lays each `constant X& [[buffer(n)]]`
+    struct (pads between members, accessed-but-unwritten pads packed into gaps) instead of
+    touching the tables — the pattern the 4 hand-recovered shaders proved on-device;
+  - the trailing vertex-channel table is **platform-dependent**: each (channel, value) pair's
+    value on Metal = **the generated MSL's `[[attribute(n)]]` index + 13**. NOT the ISGN
+    register + 13: HLSLcc COMPACTS attribute numbering when the D3D signature carries unused
+    inputs (Limb VS: 5 declared / 3 used), and the ISGN rule then feeds the wrong mesh
+    channels into the shader (normals→uv, tangents→color → alpha −1 → all pixels discarded);
+  - texture/sampler register numbering is identity through HLSLcc (asserted by v2);
   - fragment outputs use Unity 2022.3's `rp_output_remap_mask [[function_constant(1)]]`
-    preamble (public HLSLcc's `XLT_REMAP_O` macro is post-processed into it), VS position
-    gets `[[position, invariant]]`;
-  - the MSL is newline-padded so `payloadLen % 4` matches the original D3D payload's,
-    keeping the engine's trailing-table read phase identical.
+    preamble, VS position gets `[[position, invariant]]`;
+  - the MSL is newline-padded so `payloadLen % 4` matches the original D3D payload's.
 
   ```bash
   tools/hlslcc/build.sh   # once: fetch+build Unity HLSLcc + CLI
-  python3 inject_custom_metal.py --game-data <CU.app>/Contents/Resources/Data \
+  python3 inject_custom_metal2.py \
+      --src-data <WindowsBuild>/CasualtiesUnknown_Data \
+      --dst-data <CU.app>/Contents/Resources/Data \
       --compile-check     # add --only <Short> / --dry-run to scope
+  # then: codesign --force --deep -s - <CU.app>
   ```
 
 ---

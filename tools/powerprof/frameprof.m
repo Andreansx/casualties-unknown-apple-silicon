@@ -150,21 +150,115 @@ static void *heartbeat(void *arg) {
 
 // ── per-encoder draw stats ───────────────────────────────────────────────────
 
-typedef struct { void *enc; long draws; long verts; } EncStat;
+// PEEK: when the bound render PSO's label contains FRAMEPROF_PEEK (default off),
+// every draw dumps the live contents of the bound constant/vertex buffers so
+// "engine wrote constants where the shader reads them?" and "is the deformed
+// vertex data sane?" are answerable without a .gputrace.
+#define PEEK_VB 31
+typedef struct {
+    void *enc; long draws; long verts;
+    int psoMatch; void *pso;
+    char pass[160];
+    double vpx, vpy, vpw, vph;
+    unsigned long stencilRef;
+    void *vb[PEEK_VB]; unsigned long vboff[PEEK_VB];      // vertex MTLBuffers
+    void *fb[4]; unsigned long fboff[4];                  // fragment MTLBuffers 0..3
+    unsigned char vstash[2][4096]; unsigned long vstashlen[2];   // setVertexBytes 0..1
+    unsigned char fstash[2][4096]; unsigned long fstashlen[2];   // setFragmentBytes 0..1
+} EncStat;
 static EncStat g_es[256];
 static pthread_mutex_t g_esmu = PTHREAD_MUTEX_INITIALIZER;
+static const char *g_peek = NULL;
+static _Atomic long g_peeks = 0;
+
+static EncStat *es_find(void *enc) {   // caller holds g_esmu
+    for (int i = 0; i < 256; i++) if (g_es[i].enc == enc) return &g_es[i];
+    return NULL;
+}
 
 static void es_add(void *enc) {
     pthread_mutex_lock(&g_esmu);
-    for (int i = 0; i < 256; i++) if (!g_es[i].enc) { g_es[i].enc = enc; g_es[i].draws = 0; g_es[i].verts = 0; break; }
+    for (int i = 0; i < 256; i++) if (!g_es[i].enc) { memset(&g_es[i], 0, sizeof(EncStat)); g_es[i].enc = enc; break; }
     pthread_mutex_unlock(&g_esmu);
 }
+static void fdump(char *out, size_t n, const unsigned char *base, unsigned long avail,
+                  unsigned long off, int nfloats) {
+    size_t o = 0;
+    out[0] = 0;
+    if (!base || off + 4 > avail) { snprintf(out, n, "\"oob\""); return; }
+    if (off + nfloats * 4 > avail) nfloats = (int)((avail - off) / 4);
+    o += snprintf(out + o, n - o, "[");
+    const float *f = (const float *)(base + off);
+    for (int i = 0; i < nfloats && o + 16 < n; i++)
+        o += snprintf(out + o, n - o, "%s%.5g", i ? "," : "", f[i]);
+    snprintf(out + o, n - o, "]");
+}
+
+static void peek_buf(id mtlbuf, unsigned long bindoff, const unsigned char **base,
+                     unsigned long *avail) {
+    *base = NULL; *avail = 0;
+    if (!mtlbuf) return;
+    @try {
+        if ([(id<MTLBuffer>)mtlbuf storageMode] == MTLStorageModePrivate) return;
+        const unsigned char *p = (const unsigned char *)[(id<MTLBuffer>)mtlbuf contents];
+        unsigned long len = [(id<MTLBuffer>)mtlbuf length];
+        if (p && bindoff < len) { *base = p + bindoff; *avail = len - bindoff; }
+    } @catch (...) {}
+}
+
+static void es_peek(EncStat *st, unsigned long verts) {
+    if (atomic_fetch_add(&g_peeks, 1) > 2000) return;
+    char head[512], vp[256], tail[640], pp[128], otw[256], fs_head[512], fs_tail[640], vbs[1400];
+    const unsigned char *base; unsigned long avail;
+    // VS buffer 0 = $Globals (limb: pp@336, VP@1216, tail 2048..; stock: 0..128)
+    if (st->vstashlen[0]) { base = st->vstash[0]; avail = st->vstashlen[0]; }
+    else peek_buf((id)st->vb[0], st->vboff[0], &base, &avail);
+    unsigned long vs0len = avail;
+    fdump(head, sizeof head, base, avail, 0, 16);
+    fdump(vp, sizeof vp, base, avail, 1216, 16);
+    fdump(pp, sizeof pp, base, avail, 336, 4);
+    fdump(tail, sizeof tail, base, avail, 2048, 32);
+    // VS buffer 1 = UnityPerDraw (ObjectToWorld rows 0..3)
+    if (st->vstashlen[1]) { base = st->vstash[1]; avail = st->vstashlen[1]; }
+    else peek_buf((id)st->vb[1], st->vboff[1], &base, &avail);
+    fdump(otw, sizeof otw, base, avail, 0, 16);
+    // FS buffer 0 = $Globals fragment view
+    if (st->fstashlen[0]) { base = st->fstash[0]; avail = st->fstashlen[0]; }
+    else peek_buf((id)st->fb[0], st->fboff[0], &base, &avail);
+    unsigned long fs0len = avail;
+    fdump(fs_head, sizeof fs_head, base, avail, 0, 8);
+    fdump(fs_tail, sizeof fs_tail, base, avail, 2048, 32);
+    // vertex streams (indices 2..30): first 8 floats each
+    size_t o = 0; vbs[0] = 0;
+    for (int i = 2; i < PEEK_VB && o + 200 < sizeof vbs; i++) {
+        if (!st->vb[i]) continue;
+        peek_buf((id)st->vb[i], st->vboff[i], &base, &avail);
+        char tmp[220];
+        fdump(tmp, sizeof tmp, base, avail, 0, 8);
+        o += snprintf(vbs + o, sizeof vbs - o, "%s\"b%d\":%s", o ? "," : "", i, tmp);
+    }
+    logline("\"event\":\"peek\",\"enc\":\"%p\",\"pso\":\"%p\",\"v\":%lu,\"vs0len\":%lu,\"fs0len\":%lu,"
+            "\"pass\":\"%s\",\"vpXYWH\":[%.0f,%.0f,%.0f,%.0f],\"sref\":%lu,"
+            "\"vs_head\":%s,\"vs_pp336\":%s,\"vs_vp1216\":%s,\"vs_tail2048\":%s,\"updraw\":%s,"
+            "\"fs_head\":%s,\"fs_tail2048\":%s,\"vstream\":{%s}",
+            st->enc, st->pso, verts, vs0len, fs0len,
+            st->pass, st->vpx, st->vpy, st->vpw, st->vph, st->stencilRef,
+            head, pp, vp, tail, otw, fs_head, fs_tail, vbs);
+}
+
 static void es_draw(void *enc, unsigned long verts, unsigned long inst) {
     atomic_fetch_add(&g_draws, 1);
     atomic_fetch_add(&g_verts, (long)(verts * (inst ? inst : 1)));
+    int peek = 0;
+    EncStat snap;
     pthread_mutex_lock(&g_esmu);
-    for (int i = 0; i < 256; i++) if (g_es[i].enc == enc) { g_es[i].draws++; g_es[i].verts += (long)(verts * (inst ? inst : 1)); break; }
+    EncStat *st = es_find(enc);
+    if (st) {
+        st->draws++; st->verts += (long)(verts * (inst ? inst : 1));
+        if (st->psoMatch) { peek = 1; snap = *st; }
+    }
     pthread_mutex_unlock(&g_esmu);
+    if (peek) es_peek(&snap, verts);
     if (dgate()) logline("\"event\":\"draw\",\"enc\":\"%p\",\"v\":%lu,\"i\":%lu", enc, verts, inst);
 }
 static EncStat es_take(void *enc) {
@@ -218,6 +312,38 @@ static id hook_rce(id self, SEL _cmd, MTLRenderPassDescriptor *d) {
         if (d && dgate()) log_pass(d, (void *)enc);
     }
     return enc;
+}
+
+// Unity's jobified renderer records the main pass through a
+// MTLParallelRenderCommandEncoder; its sub-encoders must be tracked too or
+// their PSO binds/draws are invisible to the peek machinery.
+static IMP orig_prce, orig_prce_sub;
+static char g_lastppass[160];   // parent pass summary for sub-encoders (racy is fine)
+
+static id hook_prce_sub(id self, SEL _cmd) {
+    id enc = ((id(*)(id, SEL))orig_prce_sub)(self, _cmd);
+    if (enc) {
+        atomic_fetch_add(&g_encR, 1);
+        es_add((void *)enc);
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)enc);
+        if (st) strlcpy(st->pass, g_lastppass, sizeof st->pass);
+        pthread_mutex_unlock(&g_esmu);
+    }
+    return enc;
+}
+static id hook_prce(id self, SEL _cmd, MTLRenderPassDescriptor *d) {
+    id penc = ((id(*)(id, SEL, id))orig_prce)(self, _cmd, d);
+    if (d) @try {
+        id<MTLTexture> t = d.colorAttachments[0].texture;
+        char lab[64]; lab[0] = 0;
+        if (t) obj_label((id)t, lab, sizeof lab);
+        snprintf(g_lastppass, sizeof g_lastppass, "c0 %lux%lu fmt%lu '%s'",
+                 t ? (unsigned long)t.width : 0, t ? (unsigned long)t.height : 0,
+                 t ? (unsigned long)t.pixelFormat : 0, lab);
+    } @catch (...) {}
+    if (penc && d && dgate()) log_pass(d, (void *)penc);
+    return penc;
 }
 static id hook_cce(id self, SEL _cmd) {
     atomic_fetch_add(&g_encC, 1);
@@ -291,12 +417,298 @@ static IMP orig_endR, orig_endC, orig_endB, orig_setrps, orig_setcps;
 static IMP orig_dP, orig_dPi, orig_dPib, orig_dI, orig_dIi, orig_dIib;
 static IMP orig_dtg, orig_dth;
 
+typedef struct { void *p; int flags; } RegEnt;   // PSO registry (defined below)
+static RegEnt g_rpso[2048];
+static int reg_get(RegEnt *tab, int n, void *p);
+static _Atomic long g_traces;
+
 static void hook_setrps(id self, SEL _cmd, id pso) {
-    if (dgate()) {
-        char lab[256]; obj_label(pso, lab, sizeof lab);
-        logline("\"event\":\"pso\",\"enc\":\"%p\",\"label\":\"%s\"", (void *)self, lab);
+    char lab[256]; obj_label(pso, lab, sizeof lab);
+    if (g_peek) {
+        // peek only pipelines built from the Limb FS (_SkinDamage) — the stock sprite
+        // shaders also contain _RendererColor and would exhaust the peek budget
+        int match = (lab[0] && strstr(lab, g_peek) != NULL) ||
+                    (reg_get(g_rpso, 2048, (void *)pso) & 1) != 0;
+        int was = 0;
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) { was = st->psoMatch; st->psoMatch = match; st->pso = (void *)pso; }
+        pthread_mutex_unlock(&g_esmu);
+        if (match && atomic_load(&g_traces) < 3000)
+            logline("\"event\":\"limbBind\",\"enc\":\"%p\",\"pso\":\"%p\"",
+                    (void *)self, (void *)pso);
+        else if (was && !match && atomic_load(&g_traces) < 3000)
+            logline("\"event\":\"limbUnbind\",\"enc\":\"%p\",\"next\":\"%s\"", (void *)self, lab);
     }
+    if (dgate()) logline("\"event\":\"pso\",\"enc\":\"%p\",\"label\":\"%s\"", (void *)self, lab);
     ((void(*)(id, SEL, id))orig_setrps)(self, _cmd, pso);
+}
+
+// ── buffer-binding tracking (for peek) ───────────────────────────────────────
+
+static IMP orig_setvb, orig_setvboff, orig_setvbytes, orig_setfb, orig_setfboff, orig_setfbytes;
+
+static int trace_on(void *enc) {   // log state calls on encoders with the Limb PSO bound
+    if (!g_peek) return 0;
+    int m = 0;
+    pthread_mutex_lock(&g_esmu);
+    EncStat *st = es_find(enc);
+    if (st) m = st->psoMatch;
+    pthread_mutex_unlock(&g_esmu);
+    return m && atomic_fetch_add(&g_traces, 1) < 3000;
+}
+
+static void hook_setvb(id self, SEL _cmd, id buf, NSUInteger off, NSUInteger idx) {
+    if (g_peek && idx < PEEK_VB) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) { st->vb[idx] = (void *)buf; st->vboff[idx] = off;
+                  if (idx < 2) st->vstashlen[idx] = 0; }
+        pthread_mutex_unlock(&g_esmu);
+    }
+    if (trace_on((void *)self))
+        logline("\"event\":\"tr\",\"enc\":\"%p\",\"c\":\"vb\",\"i\":%lu,\"nil\":%d,\"off\":%lu,\"len\":%lu",
+                (void *)self, (unsigned long)idx, buf == nil,
+                (unsigned long)off, buf ? (unsigned long)[(id<MTLBuffer>)buf length] : 0);
+    ((void(*)(id, SEL, id, NSUInteger, NSUInteger))orig_setvb)(self, _cmd, buf, off, idx);
+}
+static void hook_setvboff(id self, SEL _cmd, NSUInteger off, NSUInteger idx) {
+    if (g_peek && idx < PEEK_VB) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) st->vboff[idx] = off;
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, NSUInteger, NSUInteger))orig_setvboff)(self, _cmd, off, idx);
+}
+static void hook_setvbytes(id self, SEL _cmd, const void *p, NSUInteger len, NSUInteger idx) {
+    if (g_peek && idx < 2 && p) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) { unsigned long n = len > 4096 ? 4096 : len;
+                  memcpy(st->vstash[idx], p, n); st->vstashlen[idx] = n; st->vb[idx] = NULL; }
+        pthread_mutex_unlock(&g_esmu);
+    }
+    if (trace_on((void *)self))
+        logline("\"event\":\"tr\",\"enc\":\"%p\",\"c\":\"vbytes\",\"i\":%lu,\"len\":%lu",
+                (void *)self, (unsigned long)idx, (unsigned long)len);
+    ((void(*)(id, SEL, const void *, NSUInteger, NSUInteger))orig_setvbytes)(self, _cmd, p, len, idx);
+}
+static void hook_setfb(id self, SEL _cmd, id buf, NSUInteger off, NSUInteger idx) {
+    if (g_peek && idx < 4) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) { st->fb[idx] = (void *)buf; st->fboff[idx] = off;
+                  if (idx < 2) st->fstashlen[idx] = 0; }
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, id, NSUInteger, NSUInteger))orig_setfb)(self, _cmd, buf, off, idx);
+}
+static void hook_setfboff(id self, SEL _cmd, NSUInteger off, NSUInteger idx) {
+    if (g_peek && idx < 4) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) st->fboff[idx] = off;
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, NSUInteger, NSUInteger))orig_setfboff)(self, _cmd, off, idx);
+}
+static IMP orig_setviewport, orig_setsref;
+static void hook_setviewport(id self, SEL _cmd, MTLViewport v) {
+    if (g_peek) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) { st->vpx = v.originX; st->vpy = v.originY; st->vpw = v.width; st->vph = v.height; }
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, MTLViewport))orig_setviewport)(self, _cmd, v);
+}
+static void hook_setsref(id self, SEL _cmd, uint32_t ref) {
+    if (g_peek) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) st->stencilRef = ref;
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, uint32_t))orig_setsref)(self, _cmd, ref);
+}
+
+static IMP orig_setvbs, orig_setfbs;
+static void hook_setvbs(id self, SEL _cmd, const id *bufs, const NSUInteger *offs, NSRange r) {
+    if (g_peek && bufs && offs) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) for (NSUInteger k = 0; k < r.length; k++) {
+            NSUInteger idx = r.location + k;
+            if (idx < PEEK_VB) { st->vb[idx] = (void *)bufs[k]; st->vboff[idx] = offs[k];
+                                 if (idx < 2) st->vstashlen[idx] = 0; }
+        }
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, const id *, const NSUInteger *, NSRange))orig_setvbs)(self, _cmd, bufs, offs, r);
+}
+static void hook_setfbs(id self, SEL _cmd, const id *bufs, const NSUInteger *offs, NSRange r) {
+    if (g_peek && bufs && offs) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) for (NSUInteger k = 0; k < r.length; k++) {
+            NSUInteger idx = r.location + k;
+            if (idx < 4) { st->fb[idx] = (void *)bufs[k]; st->fboff[idx] = offs[k];
+                           if (idx < 2) st->fstashlen[idx] = 0; }
+        }
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, const id *, const NSUInteger *, NSRange))orig_setfbs)(self, _cmd, bufs, offs, r);
+}
+
+static IMP orig_setftex;
+static void hook_setftex(id self, SEL _cmd, id tex, NSUInteger idx) {
+    if (trace_on((void *)self))
+        logline("\"event\":\"tr\",\"enc\":\"%p\",\"c\":\"ftex\",\"i\":%lu,\"nil\":%d",
+                (void *)self, (unsigned long)idx, tex == nil);
+    ((void(*)(id, SEL, id, NSUInteger))orig_setftex)(self, _cmd, tex, idx);
+}
+
+static void hook_setfbytes(id self, SEL _cmd, const void *p, NSUInteger len, NSUInteger idx) {
+    if (g_peek && idx < 2 && p) {
+        pthread_mutex_lock(&g_esmu);
+        EncStat *st = es_find((void *)self);
+        if (st) { unsigned long n = len > 4096 ? 4096 : len;
+                  memcpy(st->fstash[idx], p, n); st->fstashlen[idx] = n; st->fb[idx] = NULL; }
+        pthread_mutex_unlock(&g_esmu);
+    }
+    ((void(*)(id, SEL, const void *, NSUInteger, NSUInteger))orig_setfbytes)(self, _cmd, p, len, idx);
+}
+
+// ── shader library / pipeline creation (are the converted shaders compiling?) ─
+// Chain registry: library(source flags) -> function -> pipeline, so PSOs built from
+// the converted Limb MSL are recognizable even when Unity leaves the PSO unlabeled.
+
+#define FLAG_SKIN 1
+#define FLAG_RCOL 2
+static RegEnt g_rlib[256], g_rfn[1024];
+static pthread_mutex_t g_regmu = PTHREAD_MUTEX_INITIALIZER;
+
+static void reg_put(RegEnt *tab, int n, void *p, int flags) {
+    if (!p || !flags) return;
+    pthread_mutex_lock(&g_regmu);
+    for (int i = 0; i < n; i++) if (tab[i].p == p || !tab[i].p) { tab[i].p = p; tab[i].flags = flags; break; }
+    pthread_mutex_unlock(&g_regmu);
+}
+static int reg_get(RegEnt *tab, int n, void *p) {
+    if (!p) return 0;
+    int f = 0;
+    pthread_mutex_lock(&g_regmu);
+    for (int i = 0; i < n; i++) { if (!tab[i].p) break; if (tab[i].p == p) { f = tab[i].flags; break; } }
+    pthread_mutex_unlock(&g_regmu);
+    return f;
+}
+
+static IMP orig_newfn, orig_newfn_cv;
+static id hook_newfn(id self, SEL _cmd, NSString *name) {
+    id fn = ((id(*)(id, SEL, NSString *))orig_newfn)(self, _cmd, name);
+    reg_put(g_rfn, 1024, (void *)fn, reg_get(g_rlib, 256, (void *)self));
+    return fn;
+}
+static id hook_newfn_cv(id self, SEL _cmd, NSString *name, id cv, NSError **err) {
+    id fn = ((id(*)(id, SEL, NSString *, id, NSError **))orig_newfn_cv)(self, _cmd, name, cv, err);
+    reg_put(g_rfn, 1024, (void *)fn, reg_get(g_rlib, 256, (void *)self));
+    return fn;
+}
+static pthread_once_t g_libswz_once = PTHREAD_ONCE_INIT;
+static Class g_libcls;
+static void libswz(void) {
+    orig_newfn = swz(g_libcls, "newFunctionWithName:", (IMP)hook_newfn);
+    orig_newfn_cv = swz(g_libcls, "newFunctionWithName:constantValues:error:", (IMP)hook_newfn_cv);
+}
+
+static void reg_pso(id pso, MTLRenderPipelineDescriptor *d) {
+    @try {
+        int f = reg_get(g_rfn, 1024, (void *)d.vertexFunction) |
+                reg_get(g_rfn, 1024, (void *)d.fragmentFunction);
+        if (f && pso) {
+            reg_put(g_rpso, 2048, (void *)pso, f);
+            char lab[256]; lab[0] = 0;
+            if (d.label) jesc([d.label UTF8String], lab, sizeof lab);
+            // dump the vertex descriptor: which buffer/offset/format feeds each attribute
+            char vd[1024]; size_t o = 0; vd[0] = 0;
+            MTLVertexDescriptor *v = d.vertexDescriptor;
+            if (v) {
+                for (int a = 0; a < 31 && o + 80 < sizeof vd; a++) {
+                    MTLVertexAttributeDescriptor *ad = v.attributes[a];
+                    if (!ad || ad.format == MTLVertexFormatInvalid) continue;
+                    o += snprintf(vd + o, sizeof vd - o,
+                                  "%s\"a%d\":{\"fmt\":%lu,\"off\":%lu,\"buf\":%lu}",
+                                  o ? "," : "", a, (unsigned long)ad.format,
+                                  (unsigned long)ad.offset, (unsigned long)ad.bufferIndex);
+                }
+                for (int b = 0; b < 31 && o + 80 < sizeof vd; b++) {
+                    MTLVertexBufferLayoutDescriptor *ld = v.layouts[b];
+                    if (!ld || ld.stride == 0) continue;
+                    o += snprintf(vd + o, sizeof vd - o,
+                                  "%s\"l%d\":{\"stride\":%lu,\"step\":%lu,\"rate\":%lu}",
+                                  o ? "," : "", b, (unsigned long)ld.stride,
+                                  (unsigned long)ld.stepFunction, (unsigned long)ld.stepRate);
+                }
+            }
+            logline("\"event\":\"psoReg\",\"pso\":\"%p\",\"flags\":%d,\"label\":\"%s\",\"vdesc\":{%s}",
+                    (void *)pso, f, lab, vd);
+        }
+    } @catch (...) {}
+}
+
+static IMP orig_newlib, orig_newpso, orig_newpso_refl;
+
+static id hook_newlib(id self, SEL _cmd, NSString *src, id opts, NSError **err) {
+    NSError *localErr = nil;
+    if (!err) err = &localErr;
+    id lib = ((id(*)(id, SEL, NSString *, id, NSError **))orig_newlib)(self, _cmd, src, opts, err);
+    @try {
+        const char *s = [src UTF8String];
+        int skin = s && strstr(s, "_SkinDamage") != NULL;
+        int rcol = s && strstr(s, "_RendererColor") != NULL;
+        if (lib) {
+            reg_put(g_rlib, 256, (void *)lib, (skin ? FLAG_SKIN : 0) | (rcol ? FLAG_RCOL : 0));
+            g_libcls = object_getClass(lib);
+            pthread_once(&g_libswz_once, libswz);
+        }
+        if (!lib || skin || rcol) {
+            char e[512]; e[0] = 0;
+            if (*err) jesc([[*err localizedDescription] UTF8String], e, sizeof e);
+            logline("\"event\":\"newlib\",\"len\":%lu,\"skinDamage\":%d,\"rendColor\":%d,"
+                    "\"ok\":%d,\"err\":\"%s\"", (unsigned long)[src length], skin, rcol,
+                    lib != nil, e);
+        }
+    } @catch (...) {}
+    return lib;
+}
+static id hook_newpso(id self, SEL _cmd, MTLRenderPipelineDescriptor *d, NSError **err) {
+    NSError *localErr = nil;
+    if (!err) err = &localErr;
+    id pso = ((id(*)(id, SEL, id, NSError **))orig_newpso)(self, _cmd, d, err);
+    reg_pso(pso, d);
+    if (!pso) @try {
+        char lab[256], e[512]; lab[0] = e[0] = 0;
+        if (d.label) jesc([d.label UTF8String], lab, sizeof lab);
+        if (*err) jesc([[*err localizedDescription] UTF8String], e, sizeof e);
+        logline("\"event\":\"psoFail\",\"label\":\"%s\",\"err\":\"%s\"", lab, e);
+    } @catch (...) {}
+    return pso;
+}
+static id hook_newpso_refl(id self, SEL _cmd, MTLRenderPipelineDescriptor *d, NSUInteger opts,
+                           void *refl, NSError **err) {
+    NSError *localErr = nil;
+    if (!err) err = &localErr;
+    id pso = ((id(*)(id, SEL, id, NSUInteger, void *, NSError **))orig_newpso_refl)(
+        self, _cmd, d, opts, refl, err);
+    reg_pso(pso, d);
+    if (!pso) @try {
+        char lab[256], e[512]; lab[0] = e[0] = 0;
+        if (d.label) jesc([d.label UTF8String], lab, sizeof lab);
+        if (*err) jesc([[*err localizedDescription] UTF8String], e, sizeof e);
+        logline("\"event\":\"psoFail\",\"label\":\"%s\",\"err\":\"%s\"", lab, e);
+    } @catch (...) {}
+    return pso;
 }
 static void hook_setcps(id self, SEL _cmd, id pso) {
     if (dgate()) {
@@ -501,6 +913,18 @@ static void install(void) {
         Class REC = object_getClass(re);
         [(id<MTLRenderCommandEncoder>)re endEncoding];
 
+        id<MTLCommandBuffer> cbp = [q commandBuffer];
+        MTLRenderPassDescriptor *rp2 = [MTLRenderPassDescriptor renderPassDescriptor];
+        rp2.colorAttachments[0].texture = tex;
+        rp2.colorAttachments[0].loadAction = MTLLoadActionClear;
+        rp2.colorAttachments[0].storeAction = MTLStoreActionDontCare;
+        id pe = [cbp parallelRenderCommandEncoderWithDescriptor:rp2];
+        Class PREC = object_getClass(pe);
+        id sub = [(id<MTLParallelRenderCommandEncoder>)pe renderCommandEncoder];
+        Class SUBC = object_getClass(sub);
+        [(id<MTLRenderCommandEncoder>)sub endEncoding];
+        [(id<MTLParallelRenderCommandEncoder>)pe endEncoding];
+
         id<MTLCommandBuffer> cb2 = [q commandBuffer];
         id ce = [cb2 computeCommandEncoder];
         Class CEC = object_getClass(ce);
@@ -524,6 +948,21 @@ static void install(void) {
         orig_wait     = swz(CBC, "waitUntilCompleted", (IMP)hook_wait);
 
         orig_setrps = swz(REC, "setRenderPipelineState:", (IMP)hook_setrps);
+        orig_setvb     = swz(REC, "setVertexBuffer:offset:atIndex:", (IMP)hook_setvb);
+        orig_setvboff  = swz(REC, "setVertexBufferOffset:atIndex:", (IMP)hook_setvboff);
+        orig_setvbytes = swz(REC, "setVertexBytes:length:atIndex:", (IMP)hook_setvbytes);
+        orig_setfb     = swz(REC, "setFragmentBuffer:offset:atIndex:", (IMP)hook_setfb);
+        orig_setfboff  = swz(REC, "setFragmentBufferOffset:atIndex:", (IMP)hook_setfboff);
+        orig_setfbytes = swz(REC, "setFragmentBytes:length:atIndex:", (IMP)hook_setfbytes);
+        orig_setftex   = swz(REC, "setFragmentTexture:atIndex:", (IMP)hook_setftex);
+        orig_setvbs    = swz(REC, "setVertexBuffers:offsets:withRange:", (IMP)hook_setvbs);
+        orig_setfbs    = swz(REC, "setFragmentBuffers:offsets:withRange:", (IMP)hook_setfbs);
+        orig_setviewport = swz(REC, "setViewport:", (IMP)hook_setviewport);
+        orig_setsref     = swz(REC, "setStencilReferenceValue:", (IMP)hook_setsref);
+        Class DEV = object_getClass((id)dev);
+        orig_newlib = swz(DEV, "newLibraryWithSource:options:error:", (IMP)hook_newlib);
+        orig_newpso = swz(DEV, "newRenderPipelineStateWithDescriptor:error:", (IMP)hook_newpso);
+        orig_newpso_refl = swz(DEV, "newRenderPipelineStateWithDescriptor:options:reflection:error:", (IMP)hook_newpso_refl);
         orig_dP   = swz(REC, "drawPrimitives:vertexStart:vertexCount:", (IMP)hook_dP);
         orig_dPi  = swz(REC, "drawPrimitives:vertexStart:vertexCount:instanceCount:", (IMP)hook_dPi);
         orig_dPib = swz(REC, "drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:", (IMP)hook_dPib);
@@ -538,6 +977,13 @@ static void install(void) {
         orig_endC = swz(CEC, "endEncoding", (IMP)hook_endC);
 
         orig_endB = swz(BEC, "endEncoding", (IMP)hook_endB);
+
+        Class CBC2 = CBC;
+        orig_prce = swz(CBC2, "parallelRenderCommandEncoderWithDescriptor:", (IMP)hook_prce);
+        orig_prce_sub = swz(PREC, "renderCommandEncoder", (IMP)hook_prce_sub);
+        if (SUBC != REC)
+            logline("\"event\":\"subclassDiffers\",\"sub\":\"%s\",\"rec\":\"%s\"",
+                    class_getName(SUBC), class_getName(REC));
 
         Class LC = objc_getClass("CAMetalLayer");
         if (LC) {
@@ -554,6 +1000,7 @@ static void install(void) {
 __attribute__((constructor)) static void init(void) {
     logline("\"event\":\"loaded\",\"pid\":%d,\"proc\":\"%s\"", getpid(), getprogname());
     const char *e;
+    if ((e = getenv("FRAMEPROF_PEEK")))          g_peek    = e;
     if ((e = getenv("FRAMEPROF_DETAIL_START")))  g_dstart  = atol(e);
     if ((e = getenv("FRAMEPROF_DETAIL_PERIOD"))) g_dperiod = atol(e);
     if ((e = getenv("FRAMEPROF_DETAIL_N")))      g_dn      = atol(e);

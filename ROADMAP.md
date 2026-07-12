@@ -290,21 +290,51 @@ rebuilding):
 3. **Donor's `lib_burst_generated.bundle`** (Contents/PlugIns) is hash-mismatched with the
    game's assemblies → removed (backup in bcl-backup-win); Burst falls back to managed.
 
-**OPEN BUG — the player Expie (rigged 2D-Animation character) is INVISIBLE** in tutorial and
-Descend; static NPCs (tutexp1) render; Player.log is CLEAN (no exceptions, no GpuProgram or
-pipeline errors). Facts established:
-- **NOT the shader**: converted `Shader Graphs/Limb` (the limb material) proven pixel-correct
-  on GPU via `tools/rewrap/quadharness.m` (lit/unlit/TYPE_0 variants all render; early zero
-  results were harness constant-offset artifacts — each keyword variant places
-  `_RendererColor`/`MatrixVP` at DIFFERENT `$Globals` offsets, see `VP_OFF` env).
-- Limb FS discards on final alpha==0 (alpha = `_MainTex.a × INTERP1.w`; `INTERP1 =
-  COLOR0 × _RendererColor`) — a zero anywhere in that chain = invisible with no errors.
-- Removing the donor burst bundle did NOT fix it. No ComputeShader assets exist in the game
-  (GPU deformation ruled out) — SpriteSkin deformation is CPU jobs (managed after fix 3).
-- Next leads: instrument gameplay with `tools/powerprof` (frameprof detail draws: do limb
-  draws exist and with how many verts? mono governor can query engine state via
-  `mono_runtime_invoke`); verify SpriteSkin deformed buffers are nonzero; check the roster UI
-  ("Expies 2/3/4 textures don't load") for the same root cause; compare vs wine reference.
+**✅ SOLVED (2026-07-12 night) — the invisible player Expie.** Entirely the PORT's fault (two
+stacked bugs in the v1 custom-shader conversion, `inject_custom_metal.py`); the game data was
+always correct (wine rendered fine off the same assets). Fixed by
+**`tools/rewrap/inject_custom_metal2.py`** (Limb re-injected; player visible, user-confirmed):
+
+1. **Serialized-vs-MSL constant offsets.** Unity's Metal runtime writes constants at the byte
+   offsets recorded in the SERIALIZED tables — `m_CommonParameters` PLUS per-variant
+   **parameter blob** entries inside the shader blob (wrapper types 2/3/4, addressed by
+   `progX.m_ParameterBlobIndices[tier][i]`; binary parser: `tools/rewrap/paramblob.py`).
+   `_RendererColor` for the lit VS lives ONLY in those blobs (`$Globals@2064+` per variant) —
+   v1's synthesized RDEF never read them, so it became an anonymous pad slot; HLSLcc also
+   repacks `$Globals` (VP 1216→16 etc.) and misaligns sub-float4 scalars in partially-used
+   CBs (`UnityPerMaterial._Wetness` 180→176). v2 keeps every serialized table byte-identical
+   and RE-LAYS the generated MSL CB structs to the serialized offsets — the exact pattern the
+   4 hand-recovered post-fx shaders already proved on-device.
+2. **Vertex-attribute numbering — the actual invisibility.** The Metal trailing channel-table
+   pair value = **the MSL `[[attribute(n)]]` index + 13**, NOT the D3D ISGN register + 13
+   (v1's rule; it held on the 56 donor stock pairs only because stock shaders use every
+   input). Limb's VS declares 5 ISGN inputs but uses 3 → HLSLcc compacts the numbering →
+   v1's table fed mesh NORMALS into the shader's TEXCOORD slot and TANGENTS into COLOR0 →
+   vertex alpha = tangent.w = −1 → `discard_fragment()` everywhere → invisible, clean log.
+   Also explains the broken roster Expies. v2 derives the table from the MSL stage_in.
+
+Diagnosis was live-GPU via `tools/powerprof/frameprof.m`, which gained: newLibraryWithSource +
+PSO-creation hooks with a library→function→PSO fingerprint registry (identifies UNLABELED
+pipelines by source markers), buffer-binding capture incl. the plural
+`setVertexBuffers:offsets:withRange:` (Unity's actual CB path), per-draw peeks of live
+constant/vertex buffers, vertex-descriptor dumps at PSO creation (the smoking gun), and
+MTLParallelRenderCommandEncoder sub-encoder tracking (Unity records the main pass through one;
+without hooking `-renderCommandEncoder` its binds/draws are invisible to the shim).
+
+**✅ v2 rolled out to ALL 16 custom Shader Graphs** (same session): 12 in the first batch +
+WallHole/RadBackground/HoverShader/RadLine after adding shared-blob-entry handling (multi-pass
+shaders reference the same code entry from several passes). The 4 hand-recovered post-fx
+(ScreenPass/DamageScreen/BonusPass/AberrationShader) intentionally remain hand-authored — v2
+can't express their `float2 _PlayerPos@148` (4-mod-8 offset) as an MSL member, and the hand MSL
+already matches the serialized offsets. **User confirmed the port WORKS in gameplay.** Pre-v2
+backups of all four `.assets`: `~/Games/assets-backup-v1/`. All of this is REQUIRED READING
+before porting the newer 6.0 Steam demo — same machinery, same traps.
+
+**OPEN (minor) — Right Mouse Button on MacBook trackpads:** the tutorial requires an RMB click;
+on a MacBook without a mouse the user couldn't proceed. Game uses Unity's new Input System.
+Leads: verify macOS two-finger "Secondary Click" reaches the game (should arrive as mouse
+button 1); the in-game console ("type help") may allow rebinding; else IL-patch
+Assembly-CSharp (dnfile/Mono.Cecil) or synthesize RMB from a key via an event tap.
 
 ## Resuming in a new session
 
