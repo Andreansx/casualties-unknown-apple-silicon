@@ -250,6 +250,20 @@ All machinery in [`tools/rewrap/`](tools/rewrap/) (`unity_metal_blob.py` + `inje
       compile-checked on the Metal toolchain. Key extra format fact: the trailing vertex-channel
       table is platform-DEPENDENT for attribute VS — on Metal each channel's value = ISGN
       register + 13 (verified on 56 donor/game entry pairs). **All 60/60 game shaders now Metal.**
+- [x] **Native GPU-power mystery (~37 W at menu vs wine 0.7 W) — SOLVED (2026-07-12).** Root cause
+      found with a new Metal frame profiler ([`tools/powerprof/`](tools/powerprof/) — a
+      `DYLD_INSERT_LIBRARIES` shim that logs every render pass / draw / cmdbuf GPU-ms as JSONL; no
+      Xcode GUI needed): the player was booting a quality level whose serialized `vSyncCount=0`.
+      On macOS Metal that disables `CAMetalLayer.displaySyncEnabled` and free-runs the main loop
+      (~900 fps): the ENTIRE frame pipeline rendered offscreen ~8× per presented frame — measured
+      **97 render encoders/frame instead of 12**, GPU 8.8 ms/frame ≈ 105% duty → pinned max clocks.
+      The same engine logic ran under wine too; **D3DMetal force-syncs presents, which masked it**.
+      Fix: [`tools/rewrap/patch_ggm_vsync.py`](tools/rewrap/patch_ggm_vsync.py) — surgical binary
+      patch of `globalgamemanagers`, `vSyncCount 0→1` in the two vsync-off quality levels
+      ("Very Low", "Low"). Verified: boot-time display-sync ON, **exactly 12 render passes/frame,
+      GPU 8.8 → 3.2 ms/frame** at vsynced 120 fps — beats the wine reference (4.06 ms).
+      (The game also has an in-game console command `framerate <n>` — its only
+      `Application.targetFrameRate` call — usable for 60 fps battery capping.)
 
 ---
 
