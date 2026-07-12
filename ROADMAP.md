@@ -193,13 +193,33 @@ validate on Metal?" risk. **Full plan + results: [`docs/native-shader-harvest.md
       = chromatic aberration. Artifacts + `mapping.json` in `~/Games/d3dm-harvest/identified/`.
 - [x] Readable disassembly per shader: `xcrun metal-objdump --disassemble` (Metal Toolchain).
 
-**Step-2 tasks (the hard tail) — not started:**
-- [ ] Learn D3DMetal's binding model → Unity-native Metal binding remap (diff a stock shader
-      present in both a Mac URP build and under D3DMetal). D3DMetal uses argument-buffer heaps
-      (`res_desc_heap_ab`/`top_level_global_ab`); Unity-native uses its own index convention.
-- [ ] Re-serialize the harvested AIR into Unity's Metal shader sub-program container (UnityPy),
-      tag platform = Metal (14), inject by GUID (reuses Path 2 injection machinery).
-- [ ] Validate each of the 4 renders correctly on the native ARM64 transplant build.
+**Step-2 tasks (the hard tail) — ✅ tooling DONE (2026-07-12); full in-game render Path-2-gated.**
+All machinery in [`tools/rewrap/`](tools/rewrap/) (`unity_metal_blob.py` + `inject_metal.py`).
+- [x] **Binding model learned → decisive finding: the harvested `.metallib` CANNOT be
+      binary-injected.** D3DMetal's AIR entry is `main(...)` taking bindless **argument-buffer
+      heaps** (`top_level_global_ab`/`res_desc_heap_ab`/`smp_desc_heap_ab`); Unity-native binds
+      **positionally** (`[[buffer(n)]]`/`[[texture(n)]]`/`[[sampler(n)]]` + `stage_in`) and, at
+      load, compiles **MSL source** via `[MTLDevice newLibraryWithSource:]` (verified in
+      `UnityPlayer.dylib`: `sub_10E2460`; a `newLibraryWithData:` binary path exists but is gated
+      off for these). **So the re-wrap is MSL source in Unity's ABI**, recovered 1:1 from the
+      harvested AIR (the GPU-validated math) + the D3D11 reflection tables (the exact bindings).
+- [x] **All 4 fragments + the shared fullscreen VS recovered as Unity-ABI MSL**, each compiling
+      clean on the real Metal toolchain (`xcrun metal -c`). Sample counts vs the AIR:
+      Aberration 5/5, DamageScreen 7/7, BonusPass 19/19, ScreenPass 12/13 (one blur tap merged —
+      minor fidelity gap, noted). MSL is game-derived → **gitignored** (like the AIR/DXBC); only
+      the tool ships.
+- [x] **Re-serialized into Unity's Metal sub-program container + injected by path ID** (UnityPy):
+      per shader, keep the platform-neutral param tables (type 2/3), swap VS/FS DXBC → freshly
+      built Metal blobs (`0x0C0A75BA`→`0xF00DCAFE`→`xlatMtlMain`→MSL), flip `platforms [4]→[14]`,
+      remap `m_GpuProgramType` 15→23 / 17→24. Injected assets reload with `platforms=['Metal']`,
+      entry types `[2,23,3,24,23]`, MSL intact. ✅
+- [x] **On-GPU validation** via a standalone Metal harness (`newLibraryWithSource:` + Unity's exact
+      binding layout + fullscreen draw): all 4 build a valid VS+FS pipeline and execute with no GPU
+      error; `AberrationShader` renders correct chromatic-aberration fringing (channel split ≤215).
+- [ ] **Full in-game render — blocked on Path 2.** The native player only inits Metal graphics once
+      *every* drawn shader has a Metal variant; the ~56 stock URP/built-in shaders still need theirs
+      (Path 2). Until then the harness is the proof. Once Path 2 lands, drop the injected
+      `globalgamemanagers.assets` into the transplant build and the 4 post-fx should render natively.
 
 ---
 

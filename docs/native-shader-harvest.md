@@ -69,6 +69,40 @@ aberration (offset UV samples, per-channel recombine, offset const 0.1).
   68–71). D3DMetal's own internal library (`file-*.metallib`: `vertPassthrough`,
   `fragColorClear…`) is excluded by its function names.
 
+## ✅ Step 2 DONE (2026-07-12): re-wrap tooling built + shaders recovered + on-GPU validated
+
+The "hard tail" is built. Everything lives in [`tools/rewrap/`](../tools/rewrap/).
+
+**The decisive finding — the harvest's binary output can't be dropped in as-is.** D3DMetal's
+harvested `.metallib` has entry `main(...)` taking its **bindless argument-buffer heaps**
+(`top_level_global_ab` / `res_desc_heap_ab` / `smp_desc_heap_ab`). Unity's native Metal backend
+binds resources **positionally** (`[[buffer(n)]]` / `[[texture(n)]]` / `[[sampler(n)]]` +
+`stage_in`) and never populates those heaps — so a binary re-wrap is impossible. Unity instead
+compiles **MSL source** at load via `[MTLDevice newLibraryWithSource:]` (found in `UnityPlayer.dylib`
+`sub_10E2460`; there is a `newLibraryWithData:` binary path too but it's gated off for these
+shaders). So the harvest's real value isn't "skip the transpile" — it's that the AIR gives the
+**exact, GPU-validated math**, which we transcribe into **Unity-ABI MSL**, pairing it with the
+**D3D11 reflection tables** (the exact CB float-offsets / texture+sampler bind indices) for bindings.
+
+**What got built:**
+- `unity_metal_blob.py` — byte-exact builder/parser for Unity's Metal sub-program container
+  (`0x0C0A75BA` wrapper → `0xF00DCAFE` payload → `xlatMtlMain` → MSL), RE'd from stock macOS Unity
+  shaders + the loader.
+- `inject_metal.py` — per shader (path IDs 68–71): keep the platform-neutral param tables
+  (type 2/3), swap the VS/FS DXBC code for freshly built Metal blobs, flip `platforms [4]→[14]`,
+  remap `m_GpuProgramType` 15→23 / 17→24. Injected assets reload as `platforms=['Metal']`,
+  entry types `[2,23,3,24,23]`, MSL intact.
+- Recovered MSL (all 4 fragments + shared fullscreen VS), each compiling on `xcrun metal -c`.
+  Sample counts match the AIR (Aberration 5, Damage 7, Bonus 19; ScreenPass 12 of 13 — one blur
+  tap merged). **The MSL is game-derived → gitignored** like the AIR/DXBC; only the tool ships.
+
+**Validation:** a standalone Metal harness compiles each VS+FS with `newLibraryWithSource:` (as
+Unity does), builds the pipeline with Unity's binding layout, and runs a fullscreen draw — all 4
+execute with no GPU error and `AberrationShader` shows correct chromatic aberration. **Full in-game
+render is gated on Path 2** (the native player won't init Metal graphics until the other ~56 stock
+shaders also have Metal variants). Drop the injected `globalgamemanagers.assets` into the transplant
+once Path 2 lands.
+
 ---
 
 ## Original plan (kept for context)

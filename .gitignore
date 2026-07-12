@@ -22,6 +22,13 @@ d3dm-harvest/
 *.dxbc
 libharvestshim.dylib
 
+# Recovered MSL shader source (tools/rewrap/msl/*.metal) is game-derived content — the exact
+# post-fx logic reconstructed from the game's shaders. Like the DXBC/AIR above, keep it LOCAL.
+# The re-wrap TOOL (tools/rewrap/*.py) is committed; each user regenerates the MSL themselves.
+tools/rewrap/msl/
+*.metal
+__pycache__/
+
 # ── macOS ────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
