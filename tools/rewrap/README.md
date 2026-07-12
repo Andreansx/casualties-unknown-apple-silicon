@@ -1,4 +1,42 @@
-# tools/rewrap — native Metal re-wrap of the 4 custom Shader Graphs (Path 3-lite, Step 2)
+# tools/rewrap — native Metal re-wrap of the custom Shader Graphs + stock transplant
+
+Three tools now live here:
+
+- **`inject_metal.py`** — the original Path 3-lite re-wrap of the 4 custom post-fx from
+  hand-recovered MSL (see below).
+- **`transplant_stock.py`** — Path 2 / Bucket A: wholesale swap of the ~40 stock shaders
+  (URP/2D/TMP) from a version-matched Mac donor build, by shader name. See `tools/donor/`.
+- **`inject_custom_metal.py`** — Path 3 / Bucket B: the **generalized, fully automatic**
+  re-wrap of the remaining 16 custom Shader Graphs. No harvest, no hand transcription:
+  it translates every keyword variant's DXBC to Unity-ABI MSL with **Unity's own HLSLcc**
+  (`tools/hlslcc/build.sh`), which is exactly the translator Unity's editor uses for Metal
+  (hence `xlatMtlMain`, `FGlobals_Type`, `Mtl_FragmentIn` — byte-level ABI parity).
+  Supporting modules: `entrytools.py` (generic code-entry/keyword/blob (de)serializer),
+  `dxbc2msl.py` (synthesizes the RDEF reflection chunk Unity strips from builds — from the
+  SHDR `dcl_*` instructions + the shader's own serialized param tables — then drives the
+  HLSLcc CLI).
+
+  Key format facts encoded there (all verified against donor/game entry pairs):
+  - a code entry is `magic 0x0C0A75BA | type | stats[4] | keywordCount | {len,str,pad4}* |
+    payloadLen | payload | trailing`;
+  - the trailing vertex-channel table is **platform-dependent** when the VS has attributes:
+    each (channel, value) pair's value on Metal = **the channel's ISGN register + 13**
+    (verified on 56 stock entry pairs, 0 contradictions);
+  - fragment outputs use Unity 2022.3's `rp_output_remap_mask [[function_constant(1)]]`
+    preamble (public HLSLcc's `XLT_REMAP_O` macro is post-processed into it), VS position
+    gets `[[position, invariant]]`;
+  - the MSL is newline-padded so `payloadLen % 4` matches the original D3D payload's,
+    keeping the engine's trailing-table read phase identical.
+
+  ```bash
+  tools/hlslcc/build.sh   # once: fetch+build Unity HLSLcc + CLI
+  python3 inject_custom_metal.py --game-data <CU.app>/Contents/Resources/Data \
+      --compile-check     # add --only <Short> / --dry-run to scope
+  ```
+
+---
+
+## The original story: hand re-wrap of the 4 post-fx (Path 3-lite, Step 2)
 
 This is the **hard tail** of Path 3-lite: take the Metal that D3DMetal generates for the game's
 four custom post-fx (`BonusPass`, `DamageScreen`, `ScreenPass`, `AberrationShader`) and re-wrap it

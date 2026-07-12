@@ -239,10 +239,17 @@ All machinery in [`tools/rewrap/`](tools/rewrap/) (`unity_metal_blob.py` + `inje
       re-wrapped shaders — **0 GpuProgram-load errors; none of the 4 are "not supported on this GPU"**
       (a control Shader Graph left in D3D11, `WallHole`, still is). The 4 crossed from unsupported to
       loaded natively.
-- [ ] **Full-frame visual (all pixels) — needs Path 2.** The scene still can't fully draw because
-      the other ~30 game shaders (sprites/URP/TextMeshPro/other Shader Graphs, e.g. `WallHole`) are
-      still D3D11-only. Converting them (Path 2, same machinery) unblocks a complete native frame in
-      which the 4 post-fx are visible in gameplay.
+- [x] **Full-frame visual — DONE via Path 2** (donor transplant, see Path 2 section): the native
+      build renders the game on Metal.
+- [x] **The remaining 16 custom Shader Graphs — DONE (2026-07-12), and better than harvesting:**
+      `tools/rewrap/inject_custom_metal.py` translates every keyword variant's DXBC to Unity-ABI
+      MSL **offline with Unity's own HLSLcc** (`tools/hlslcc/build.sh` — the same translator the
+      editor uses for Metal; its output IS the `xlatMtlMain` ABI). The RDEF reflection chunk that
+      Unity strips from builds is synthesized back from the SHDR `dcl_*`s + Unity's serialized
+      param tables (`dxbc2msl.py`). All 16 shaders × all variants (~500 programs) re-wrapped and
+      compile-checked on the Metal toolchain. Key extra format fact: the trailing vertex-channel
+      table is platform-DEPENDENT for attribute VS — on Metal each channel's value = ISGN
+      register + 13 (verified on 56 donor/game entry pairs). **All 60/60 game shaders now Metal.**
 
 ---
 
