@@ -5,6 +5,10 @@ Living tracker of the three viable paths. Read this **and** `README.md` for full
 **Current decision:** pursue **Path 1 (Whisky)** now — as the working game + a rendering
 reference + a power baseline. Paths 2/3 (native) are the deep track to attempt afterward.
 
+**Hard constraint:** the tool must rely on **free resources only** (it is meant to be a
+publishable free tool) — so **no CrossOver** (paid/proprietary). Whisky (free, from GitHub)
+is the Wine layer; fallback is raw **Apple GPTK** (free, official) if Whisky's runtime is dead.
+
 ---
 
 ## Where we are (validated facts)
@@ -39,12 +43,20 @@ including shaders**. Sidesteps the shader wall entirely.
 - **Effort:** ~1 h.
 
 Tasks:
-- [ ] Install Whisky (`brew install --cask whisky`) + its GPTK runtime (or note if unmaintained → CrossOver/GPTK)
-- [ ] Create a bottle; run the demo's `CasualtiesUnknown.exe`
-- [ ] Confirm it renders + is playable
-- [ ] Measure power with `powermetrics` and compare vs UTM
+- [x] Install Whisky — brew cask **DISABLED** (unmaintained; disabled 2026-04-09). Installed
+      Whisky.app **2.3.5 manually from GitHub releases** → `~/Applications/Whisky.app`
+      (notarized, Developer ID: Isaac Marovitz, launches clean, curl download = no quarantine).
+- [x] Create bottle `CasualtiesUnknown` (Windows 10) via `WhiskyCmd` CLI.
+      Real path: `~/Library/Containers/com.isaacmarovitz.Whisky/Bottles/32BC5B6E-…`
+- [~] Install **WhiskyWine/GPTK runtime** — first-run **GUI** step (CLI has no installer;
+      bottle has only Metadata.plist, no drive_c until runtime present). RISK: Whisky
+      unmaintained → runtime download URL may be dead → fallback to raw GPTK.
+- [ ] Run the demo's `CasualtiesUnknown.exe`:
+      `~/Applications/Whisky.app/Contents/Resources/WhiskyCmd run CasualtiesUnknown <exe>`
+- [ ] Confirm it renders (expect a real D3D11 device via D3DMetal, NOT NullGfxDevice) + plays
+- [ ] Measure power (`powermetrics`) vs UTM
 
-**Status: IN PROGRESS**
+**Status: IN PROGRESS — waiting on GUI runtime install**
 
 ---
 
