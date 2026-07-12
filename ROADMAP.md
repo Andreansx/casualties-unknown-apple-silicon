@@ -145,13 +145,23 @@ transpiling them.
 - **Effort:** medium (UnityPy asset surgery). **Risk:** medium (GUID match, mixed-shader acceptance).
 
 Tasks:
-- [ ] Build a Mac URP donor project (same URP package version as the game)
-- [ ] Map game's URP/built-in shaders ↔ donor Metal shaders by GUID
-- [ ] Inject Metal shader blobs into game data; flip shaderPlatform to Metal
-- [ ] Identify + disable the 4 custom post-fx (Volume profiles / renderer features)
-- [ ] Launch; confirm sprites + URP-2D lighting render natively on Metal
+- [x] Build a Mac URP donor project — `~/UnityProjects/EmptyMac`, 2022.3.62f3 + URP **14.0.12**
+      + TMP 3.0.7 (exact match), all 40 stock shaders in Always Included Shaders (all variants
+      compile). Automation: [`tools/donor/`](tools/donor/) (`DonorSetup.cs` + README).
+- [x] Map game ↔ donor shaders — by **name** (built players keep no GUIDs); all 40 matched.
+- [x] Inject Metal shaders — [`tools/rewrap/transplant_stock.py`](tools/rewrap/transplant_stock.py)
+      swaps each stock shader **wholesale** (m_ParsedForm + platforms + blob from donor; keeps the
+      game's m_Dependencies/m_NonModifiableTextures — PPtrs are file-local). shaderPlatform flip =
+      `patch_ggm_metal.py` (as in Path 3-lite).
+- [x] ~~Disable the 4 custom post-fx~~ — not needed; they were already re-wrapped (Path 3-lite).
+- [x] **✅ RENDERS (2026-07-12): the native ARM64 build draws the game on Metal (M2 Max)** —
+      full main-menu frame (sprites, background art, TMP text, UI), 0 GpuProgram errors,
+      0 "not supported". 44/60 shaders Metal; the 16 remaining custom Shader Graphs are Bucket B.
+- **Bug fixed en route:** in-place `env.file.save()` after `open(out,"wb")` truncates the source
+  while UnityPy still lazily reads untouched objects from it → silently corrupts every
+  non-rewritten object. Both inject tools now materialize `save()` before opening the output.
 
-**Status: not started**
+**Status: ✅ DONE — the scene renders natively. Remaining for 100%: Bucket B (16 custom graphs).**
 
 ---
 

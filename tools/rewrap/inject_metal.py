@@ -193,8 +193,12 @@ def main():
         print("\n[dry-run] no file written")
         return
     out = args.out or args.assets
+    # Materialize BEFORE opening the output: UnityPy reads untouched objects lazily from the
+    # source file, so truncating it first (in-place overwrite) corrupts every object we didn't
+    # explicitly save_typetree.
+    data = env.file.save()
     with open(out, "wb") as f:
-        f.write(env.file.save())
+        f.write(data)
     print(f"\nwrote {done} re-wrapped shader(s) -> {out}")
 
 
