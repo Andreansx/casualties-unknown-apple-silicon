@@ -4,9 +4,12 @@ Making the Windows-only Unity game **Casualties: Unknown** run on Apple Silicon
 (M2 Max) in a way that is **more power-efficient than full-system emulation**, so
 it can actually be played on battery (e.g. on a train) without the fans spinning up.
 
-> **Status:** feasibility confirmed — this is a *clean Unity Mono* case.
-> No source code is used or needed; the original managed assemblies and assets are
-> reused untouched, only the native engine layer is swapped for a native ARM64 one.
+> **Status:** the native **code** port works — a native ARM64 Mono player runs the game's
+> CIL + assets (validated: assemblies load, engine boots). But it hits a hard **shader wall**:
+> the Windows build's shaders are **D3D11-only bytecode** (incl. non-recoverable custom Shader
+> Graphs), so nothing renders natively on Metal. **Conclusion for this game: ship it via
+> Wine + Rosetta 2 + D3DMetal (Whisky / Apple GPTK)**, which translates D3D→Metal at runtime
+> (shaders included) and still beats UTM on power. See "Result: the shader wall" below.
 
 ---
 
@@ -139,13 +142,53 @@ art is often uncompressed RGBA32 anyway → safe.
 
 Run the original build under **Whisky** / **Apple Game Porting Toolkit** (Wine + Rosetta 2).
 Because it's x86-64, Rosetta handles it; DirectX→Metal via D3DMetal. Gives an immediately
-low-power, playable baseline (~3–8 W) that already beats UTM — useful as a reference while
-iterating on the native port.
+low-power, playable baseline (~3–8 W) that already beats UTM.
+
+**Update: for this game this is not just the quick win — it is THE answer** (see below).
+
+## Result: the shader wall (why native rendering is blocked)
+
+The transplant was built and run end-to-end. Findings from the real launch (`Player.log`):
+
+- **Native code path works.** ARM64 player boots, Mono loads `Assembly-CSharp.dll` + all
+  assemblies, PhysX/Input/subsystems init, version + save-path correct. The game's logic runs
+  natively on Apple Silicon — the hard part is proven.
+- **Graphics path is blocked.** The player logs `NullGfxDevice` and crashes in the draw path.
+  Root cause found via UnityPy diff of the game vs an empty macOS build's `globalgamemanagers`:
+  `GraphicsSettings.m_ShaderDefinesPerShaderCompiler.shaderPlatform` = **4 (D3D11)** in the
+  game vs **14 (Metal)** in the Mac build. **Every shader in the build is D3D11-only bytecode;
+  there are no Metal variants.**
+- `-force-metal` is a real flag and forces the Metal device, but then:
+  `Forced GfxDevice 'Metal' ... shaders will not be available` →
+  `InitializeEngineGraphics failed`. No Metal shaders exist, not even engine blit shaders.
+- **Non-recoverable bit:** the game ships **custom Shader Graphs** (`BonusPass`, `DamageScreen`,
+  `AberrationShader`, `ScreenPass` — post-processing) that exist only as D3D bytecode. URP/
+  built-in package shaders could be re-obtained from a Mac URP build, but custom graphs cannot
+  be rebuilt without the project source.
+
+**Therefore a pure data-swap cannot produce a fully-rendering native port for this game.**
+The code is portable; the compiled shaders are platform-locked to D3D.
+
+### The shipping path: Wine + Rosetta 2 + D3DMetal
+
+Run the **original, unmodified** Windows build under **Whisky** or **Apple Game Porting
+Toolkit**. D3DMetal (or DXVK + MoltenVK) translates **D3D11 → Metal at runtime, including the
+shaders** (DXBC → Metal), so the shader wall disappears — the whole D3D pipeline is translated
+live. Still ~3–8 W (Rosetta AOT + real GPU), still far below UTM's full-system emulation.
+
+### Hardcore-hobby alternative (partial)
+
+Native swap + **Metal shader injection**: build a Mac URP project, extract Metal-compiled URP/
+built-in shaders, inject them into the game data by GUID, and patch graphics-device selection.
+Feasible for package shaders; the custom Shader Graphs stay broken (pink) with no source.
+Multi-day RE for an imperfect result — a fun challenge, not a clean port.
 
 ## Open questions / risks
 
-- [ ] `globalgamemanagers` portability (see above).
-- [ ] Custom shaders → Metal variants present?
+- [x] `globalgamemanagers` portability — resolved: graphics/shader platform is baked in
+      (`shaderPlatform 4 = D3D11`); this is the wall, not a tunable. See "Result".
+- [x] Custom shaders → Metal variants present? — **No.** Build is D3D11-only; custom Shader
+      Graphs are unrecoverable. This blocks the native render path → use Wine+Rosetta+D3DMetal.
 - [x] ~~Burst-heavy code paths~~ — characterized: stock Unity 2D-animation/IK/SpriteShape/URP
       jobs, supported managed fallback, regenerable ARM64 lib if needed. Measure on the real
       game to confirm, but expected fine on M2 Max.
