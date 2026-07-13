@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-identify.py — map the harvested D3DMetal metallibs to the game's 4 custom Shader Graphs.
+identify.py - map the harvested D3DMetal metallibs to the game's 4 custom Shader Graphs.
 
 Pipeline (ROADMAP Path 3-lite, step 1 → identification):
   1. Disassemble every harvested libs/*.metallib (via `metal-objdump`) and fingerprint each

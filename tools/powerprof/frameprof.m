@@ -1,13 +1,13 @@
-// frameprof.m — Metal frame-structure profiler shim for the NATIVE arm64 build.
+// frameprof.m - Metal frame-structure profiler shim for the NATIVE arm64 build.
 //
 // Purpose: diagnose the ~37W GPU power at the menu (GPU ~90% duty pins max clocks;
-// bisect showed it is NOT the converted shaders — even a black-screen build costs
+// bisect showed it is NOT the converted shaders - even a black-screen build costs
 // ~7.9 GPU-ms/frame vs wine's 4.1 for the whole game). This shim logs the actual
 // per-frame encoder/pass breakdown as JSONL so the hot pass can be identified
 // without eyeballing a 1.3 GB .gputrace in Xcode.
 //
-// Unlike tools/harvest/shim.m there is NO wine preloader here — the native player
-// is a plain arm64 Mach-O — so linking Metal/Foundation directly is safe, and the
+// Unlike tools/harvest/shim.m there is NO wine preloader here - the native player
+// is a plain arm64 Mach-O - so linking Metal/Foundation directly is safe, and the
 // app is ad-hoc signed without hardened runtime, so DYLD_INSERT_LIBRARIES works
 // when the binary is exec'd directly (Contents/MacOS/EmptyMac, NOT via `open`).
 //
@@ -425,7 +425,7 @@ static _Atomic long g_traces;
 static void hook_setrps(id self, SEL _cmd, id pso) {
     char lab[256]; obj_label(pso, lab, sizeof lab);
     if (g_peek) {
-        // peek only pipelines built from the Limb FS (_SkinDamage) — the stock sprite
+        // peek only pipelines built from the Limb FS (_SkinDamage) - the stock sprite
         // shaders also contain _RendererColor and would exhaust the peek budget
         int match = (lab[0] && strstr(lab, g_peek) != NULL) ||
                     (reg_get(g_rpso, 2048, (void *)pso) & 1) != 0;

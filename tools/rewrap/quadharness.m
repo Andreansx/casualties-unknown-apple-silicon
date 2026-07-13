@@ -1,4 +1,4 @@
-// quadharness.m — standalone Metal test of the converted "Shader Graphs/Limb" sprite shader.
+// quadharness.m - standalone Metal test of the converted "Shader Graphs/Limb" sprite shader.
 // Draws a quad with POSITION/TEXCOORD0/COLOR0 exactly like Unity's Metal ABI would, with
 // identity matrices, white textures, and vertex color (1,1,1,1). If the converted shader is
 // healthy the readback is opaque non-zero pixels; a discard/zero-alpha readback reproduces

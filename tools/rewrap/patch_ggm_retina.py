@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-patch_ggm_retina.py — toggle PlayerSettings.macRetinaSupport in `globalgamemanagers`.
+patch_ggm_retina.py - toggle PlayerSettings.macRetinaSupport in `globalgamemanagers`.
 
 Why: the native Metal build renders at the full Retina drawable (3024x1898 on the 14" M2 Max),
-which is 4x the pixels of the Path 1 / D3DMetal reference (1512x982) — the GPU saturates the
+which is 4x the pixels of the Path 1 / D3DMetal reference (1512x982) - the GPU saturates the
 120 Hz frame budget (~8.4 ms/frame) and draws ~37 W at an idle menu. The game has NO resolution
 logic of its own (no Screen.SetResolution anywhere in Assembly-CSharp), so the engine-level
 switch is PlayerSettings.macRetinaSupport: False makes the CAMetalLayer render at 1x
-(1512x949), macOS scales it 2x to the panel — the exact presentation regime of the wine run
+(1512x949), macOS scales it 2x to the panel - the exact presentation regime of the wine run
 (crisp integer scaling for the pixel art, GPU mostly idle per frame).
 
-Like patch_ggm_metal.py this is a SURGICAL binary edit — UnityPy's full re-serialization
+Like patch_ggm_metal.py this is a SURGICAL binary edit - UnityPy's full re-serialization
 corrupts `globalgamemanagers`. The byte is located by re-serializing the PlayerSettings object
 with UnityPy's typetree writer, verifying byte-identity with the on-disk object, then diffing
 against the toggled serialization (guaranteed single-byte change for a bool).
@@ -42,7 +42,7 @@ def patch(path, want_retina):
     d = o.read_typetree()
     cur = d["macRetinaSupport"]
     if cur == want_retina:
-        print(f"macRetinaSupport already {cur} — nothing to do")
+        print(f"macRetinaSupport already {cur} - nothing to do")
         return
     base = serialize(o, d)
     if base != on_disk:

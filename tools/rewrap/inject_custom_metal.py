@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-inject_custom_metal.py — Path 3 (Bucket B): give the remaining custom Shader Graphs native
+inject_custom_metal.py - Path 3 (Bucket B): give the remaining custom Shader Graphs native
 Metal variants by translating their D3D11 DXBC to Unity-ABI MSL with Unity's own HLSLcc
 (tools/hlslcc/build.sh), then re-wrapping every keyword variant in place.
 
 Per shader (all "Shader Graphs/*" still on platforms=[4]):
   * per pass, build a reflection 'names' dict from Unity's serialized param tables
-    (m_NameIndices + progXXX.m_CommonParameters) — used to synthesize the RDEF chunk that
+    (m_NameIndices + progXXX.m_CommonParameters) - used to synthesize the RDEF chunk that
     Unity strips from builds (dxbc2msl.py), so HLSLcc sees real names/CB layouts;
   * for every code entry (type 15/16 VS, 17/18 FS): DXBC -> MSL, post-process to Unity's
     2022.3 Metal flavor (rp_output_remap function-constant preamble for FS,
@@ -15,7 +15,7 @@ Per shader (all "Shader Graphs/*" still on platforms=[4]):
     attributes: each (channel, value) pair's value must become the ISGN register + 13
     (verified empirically on 56 game/donor stock-shader entry pairs, 0 contradictions);
   * the MSL source is padded with trailing newlines so payloadLen keeps the ORIGINAL
-    payload's length mod 4 — the engine reads the trailing table after the payload with
+    payload's length mod 4 - the engine reads the trailing table after the payload with
     the original's alignment phase (this reproduces the exact validated configuration);
   * platforms -> [14], every m_GpuProgramType 15/16 -> 23, 17/18 -> 24, blob LZ4'd.
 
@@ -128,7 +128,7 @@ def rewrite_vs_trailing(trailing, payload):
     """Rebuild the vertex-channel table for Metal: one (channel, ISGN_register+13) pair for
     EVERY vertex input the shader declares. On D3D11 Unity implicitly zero-fills wanted
     channels absent from the pair list, but Unity's Metal vertex descriptor only declares
-    attributes present here — a missing one gives 'Vertex attribute X is missing from the
+    attributes present here - a missing one gives 'Vertex attribute X is missing from the
     vertex descriptor' at pipeline-state creation. Leading alignment pad bytes are kept."""
     idx = payload.find(b"DXBC")
     isgn_chunk = parse_container(payload[idx:]).get(b"ISGN")

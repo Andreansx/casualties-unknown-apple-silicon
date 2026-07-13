@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# identify.sh — thin wrapper: fingerprint the harvested metallibs and map the 4 custom
+# identify.sh - thin wrapper: fingerprint the harvested metallibs and map the 4 custom
 # Shader Graphs to them (see identify.py). Needs the Xcode Metal Toolchain (metal-objdump)
 # and a Python env with UnityPy + lz4.
 #
@@ -19,7 +19,7 @@ fi
 [ -z "$PY" ] && { echo "✗ need a python with UnityPy + lz4 (set PY=/path/to/venv/bin/python)"; exit 1; }
 
 xcrun -f metal-objdump >/dev/null 2>&1 || {
-  echo "✗ metal-objdump missing — install the Metal Toolchain:"
+  echo "✗ metal-objdump missing - install the Metal Toolchain:"
   echo "    xcodebuild -downloadComponent MetalToolchain"; exit 1; }
 
 exec "$PY" "$HERE/identify.py" --libs "$HARVEST_DIR/libs" --data "$GAME_DATA" --out "$HARVEST_DIR/identified"

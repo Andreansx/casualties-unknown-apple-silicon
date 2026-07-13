@@ -3,17 +3,17 @@
 
 WHY: the tutorial needs a right-click *drag* (open the trash bag, drag the item into your
 hand). `PlayerCamera::HandleDragging` starts the drag on `Input.GetKeyDown(bind)` and DROPS
-it on `Input.GetKeyUp(bind)` — the whole drag hangs off ONE bind. With the default
+it on `Input.GetKeyUp(bind)` - the whole drag hangs off ONE bind. With the default
 `iteminteract = Mouse1` you must hold a two-finger click steady while moving the cursor with
 the same fingers, which a trackpad cannot do reliably: the release lands in the wrong place
 and the item never stays in the slot. Rebind `iteminteract` to a held keyboard key (Option =
 LeftAlt) and it all works: hold the key, move the pointer with one finger, release to drop.
 
-⚠️ THE BIND STORE MOVED IN 7.0 — this cost real debugging time. The 5.1 demo kept binds in
+⚠️ THE BIND STORE MOVED IN 7.0 - this cost real debugging time. The 5.1 demo kept binds in
 `keybinds.json` (`{"binds": {"iteminteract": "Mouse1"}}`, KeyCode *names*). 7.0 folded them
 into the Settings system: `settings.json`, a flat list of `{"name":…, "value":…}` where a
 keybind's value is the KeyCode's *integer* (Mouse1 = 324, LeftAlt = 308). There is NO
-keybinds.json in the 7.0 assembly at all — an old one is silently IGNORED, the game falls back
+keybinds.json in the 7.0 assembly at all - an old one is silently IGNORED, the game falls back
 to defaults, and your rebind looks like it "did nothing". This script handles both stores and
 prints which it found.
 
@@ -72,7 +72,7 @@ def find_store(forced=None):
             return d / "keybinds.json", "keybinds"
     sys.exit("no settings.json / keybinds.json found in:\n  "
              + "\n  ".join(str(d) for d in dirs)
-             + "\nLaunch the game once — it writes its settings on first run.")
+             + "\nLaunch the game once - it writes its settings on first run.")
 
 
 def show(path, kind):
@@ -103,7 +103,7 @@ def main():
         if not backup.exists():
             sys.exit(f"no backup at {backup}")
         if running():
-            sys.exit("quit the game first — it rewrites its settings on exit.")
+            sys.exit("quit the game first - it rewrites its settings on exit.")
         shutil.copy(backup, path)
         print(f"restored {path.name} from {backup.name}")
         return
@@ -115,7 +115,7 @@ def main():
     if len(args) % 2:
         sys.exit("expected pairs: <action> <KeyCode> [<action> <KeyCode> ...]")
     if running():
-        sys.exit("quit the game first — it rewrites its settings on exit and would "
+        sys.exit("quit the game first - it rewrites its settings on exit and would "
                  "overwrite this edit.")
 
     if not backup.exists():

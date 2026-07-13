@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""inject_custom_metal2.py — v2 of the custom-shader Metal conversion. Fixes the
+"""inject_custom_metal2.py - v2 of the custom-shader Metal conversion. Fixes the
 constant-binding bug that made every HLSLcc-converted shader receive garbage/zero
 constants at runtime (invisible player Expie, roster Expies, etc.).
 
 Root cause (2026-07-12): Unity's Metal runtime writes shader constants at the byte
-offsets recorded in the SERIALIZED param tables — m_CommonParameters PLUS the
+offsets recorded in the SERIALIZED param tables - m_CommonParameters PLUS the
 per-variant parameter-blob entries referenced by m_ParameterBlobIndices (wrapper types
 2/3/4 inside the same shader blob; that is where _RendererColor and the _ShapeLight*
 uniforms live). v1 had two fatal gaps:
   1. its synthesized RDEF only used m_CommonParameters, so blob-only params became
      anonymous `pad_$Globals_N[k]` slots the engine never writes (=> INTERP1 alpha 0
      => discard => invisible);
-  2. HLSLcc (REMOVE_UNUSED_GLOBALS) repacks $Globals — and float4-granular padding
+  2. HLSLcc (REMOVE_UNUSED_GLOBALS) repacks $Globals - and float4-granular padding
      also shifts sub-float4 scalars in partially-used CBs like UnityPerMaterial
-     (_Wetness 180 -> 176) — so even table-listed constants landed at wrong offsets.
+     (_Wetness 180 -> 176) - so even table-listed constants landed at wrong offsets.
 
 v2 strategy = the one the 4 hand-recovered shaders (ScreenPass, AberrationShader, ...)
 already proved on-device: leave EVERY serialized table byte-identical to the Windows
@@ -63,7 +63,7 @@ TYPE_INFO = {  # MSL constant-address-space size/alignment
     "float2": (8, 8), "int2": (8, 8), "uint2": (8, 8),
     "float3": (16, 16), "int3": (16, 16), "uint3": (16, 16),
     "float4": (16, 16), "int4": (16, 16), "uint4": (16, 16),
-    # packed_* — same bytes, alignment 4. The escape hatch for D3D-packed vectors
+    # packed_* - same bytes, alignment 4. The escape hatch for D3D-packed vectors
     # whose serialized offset MSL cannot align a normal vector to (see PACKED).
     "packed_float2": (8, 4), "packed_int2": (8, 4), "packed_uint2": (8, 4),
     "packed_float3": (12, 4), "packed_int3": (12, 4), "packed_uint3": (12, 4),
@@ -71,10 +71,10 @@ TYPE_INFO = {  # MSL constant-address-space size/alignment
 }
 
 # D3D packs a vector at ANY 4-byte offset that doesn't straddle a 16-byte row, so a float2
-# legitimately lands at e.g. @20 or @148 (4 mod 8) — and MSL simply cannot align a `float2`
+# legitimately lands at e.g. @20 or @148 (4 mod 8) - and MSL simply cannot align a `float2`
 # member there. `packed_float2` has alignment 4 with identical size and byte layout, so it
 # expresses the offset exactly; reads are then converted back with `float2(cb.member)`.
-# This is what kept ScreenPass/DamageScreen hand-authored until 7.0 — now they're automatic.
+# This is what kept ScreenPass/DamageScreen hand-authored until 7.0 - now they're automatic.
 PACKED = {
     "float2": "packed_float2", "int2": "packed_int2", "uint2": "packed_uint2",
     "float3": "packed_float3", "int3": "packed_int3", "uint3": "packed_uint3",
@@ -140,7 +140,7 @@ def enrich_names(pass_d, prog_d, pentry):
 
 # ── MSL struct re-layout ─────────────────────────────────────────────────────
 
-PACKED_HITS = set()   # {"<shader>:<cb>.<member>@<type>"} — reported by main()
+PACKED_HITS = set()   # {"<shader>:<cb>.<member>@<type>"} - reported by main()
 
 STRUCT_RE = re.compile(r"(struct\s+([\w$]+)\s*\{)(.*?)(\};)", re.S)
 MEMBER_RE = re.compile(r"([\w$]+)\s+([\w$]+)\s*(?:\[(\d+)\])?\s*;")
@@ -280,12 +280,12 @@ def msl_texture_indices(msl):
 def rewrite_vs_trailing_msl(trailing, msl, tag):
     """Rebuild the vertex-channel table from the GENERATED MSL's [[attribute(n)]]
     declarations: (channel, attr+13) per stage_in member. v1 used the D3D ISGN
-    register instead — wrong whenever the D3D signature carries UNUSED inputs
+    register instead - wrong whenever the D3D signature carries UNUSED inputs
     (Limb: 5 in ISGN, 3 in MSL, compacted numbering), which cross-wired the mesh
     channels (normals->uv, tangents->color => alpha<=0 => invisible sprite)."""
     attrs = re.findall(r"[\w$]+\s+([A-Z][A-Z_]*?)(\d*)\s*\[\[\s*attribute\((\d+)\)\s*\]\]", msl)
     if not attrs:
-        return trailing            # VS without stage_in (procedural) — keep as-is
+        return trailing            # VS without stage_in (procedural) - keep as-is
     pad = 0
     while pad < len(trailing) and (len(trailing) - pad) % 4:
         pad += 1

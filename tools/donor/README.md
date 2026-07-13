@@ -1,4 +1,4 @@
-# tools/donor — URP donor build for the 40 stock shaders (Path 2 / Bucket A)
+# tools/donor - URP donor build for the 40 stock shaders (Path 2 / Bucket A)
 
 The game's ~40 stock shaders (URP post-fx, 2D lights/shadows, Blit, TextMeshPro, sprites) are
 D3D11-only in the Windows build. Instead of transpiling them, we let Unity itself compile the
@@ -15,7 +15,7 @@ layout): Unity **2022.3.62f3**, `com.unity.render-pipelines.universal` **14.0.12
 1. Empty 2022.3.62f3 project (ours: `~/UnityProjects/EmptyMac`). Add to `Packages/manifest.json`:
    `"com.unity.render-pipelines.universal": "14.0.12"` (TMP 3.0.7 + 2D feature already default).
 2. Copy `DonorSetup.cs` into `Assets/Editor/`.
-3. Import TMP essential resources (must be the CLI flag — `AssetDatabase.ImportPackage` is async
+3. Import TMP essential resources (must be the CLI flag - `AssetDatabase.ImportPackage` is async
    and dies with `-quit`):
    ```
    Unity -batchmode -quit -projectPath <proj> \
@@ -36,11 +36,11 @@ python3 ../rewrap/transplant_stock.py \
 ```
 
 The donor build's `globalgamemanagers.assets` carries all 40 with `platforms=[14]` (Metal) and
-variant supersets of the game's (e.g. TMP Distance Field 96 vs 8 sub-programs — always-included
+variant supersets of the game's (e.g. TMP Distance Field 96 vs 8 sub-programs - always-included
 compiles everything, which is exactly what we want: any variant the game asks for at runtime
 exists).
 
 **Result (2026-07-12):** with these 40 transplanted + the 4 custom post-fx from
-`tools/rewrap/inject_metal.py`, the native ARM64 build renders the game on Metal —
+`tools/rewrap/inject_metal.py`, the native ARM64 build renders the game on Metal -
 full main-menu frame, 0 GpuProgram errors. Only the 16 remaining custom Shader Graphs
 (Bucket B) are still D3D11.

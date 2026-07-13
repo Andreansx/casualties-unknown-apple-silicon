@@ -1,4 +1,4 @@
-# powerprof — Metal frame profiler for the native build
+# powerprof - Metal frame profiler for the native build
 
 Diagnoses GPU power/pacing issues in the **native ARM64** player without the Xcode GUI. A
 `DYLD_INSERT_LIBRARIES` shim (`frameprof.m`) swizzles the AGX command-buffer/encoder classes and
@@ -15,7 +15,7 @@ Diagnoses GPU power/pacing issues in the **native ARM64** player without the Xco
 
 Build: `./build.sh` → `~/Games/frameprof/libframeprof.dylib` (arm64; output outside iCloud dirs).
 
-Run (binary directly — `open` drops DYLD vars; ad-hoc-signed app, no hardened runtime):
+Run (binary directly - `open` drops DYLD vars; ad-hoc-signed app, no hardened runtime):
 
 ```sh
 DYLD_INSERT_LIBRARIES=$HOME/Games/frameprof/libframeprof.dylib \
@@ -34,6 +34,6 @@ The player booted into a quality level with serialized `vSyncCount=0` → Unity 
 `CAMetalLayer.displaySyncEnabled` and free-runs the loop (~900 fps), rendering the whole frame
 pipeline offscreen ~8× per presented frame: **97 render encoders/frame instead of 12**,
 GPU 8.8 ms/frame ≈ 105% duty → pinned max clocks → ~37 W. Under wine the same logic ran, but
-D3DMetal force-syncs presents (0.7 W) — which is why Path 1 never showed it. Fix:
+D3DMetal force-syncs presents (0.7 W) - which is why Path 1 never showed it. Fix:
 `tools/rewrap/patch_ggm_vsync.py` (vSyncCount 0→1 in "Very Low"/"Low"). After: 12 passes/frame,
 3.2 ms GPU/frame, vsynced 120 fps.

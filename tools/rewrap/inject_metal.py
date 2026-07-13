@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-inject_metal.py — re-wrap harvested/recovered Metal (MSL) into the 4 custom Shader Graphs
+inject_metal.py - re-wrap harvested/recovered Metal (MSL) into the 4 custom Shader Graphs
 and inject them into the game's Unity data by path ID, flipping the shader platform to Metal.
 
 Path 3-lite STEP 2 "hard tail". For each of BonusPass / DamageScreen / ScreenPass /
 AberrationShader (path IDs 68..71 in globalgamemanagers.assets):
 
   * decompress the shader's existing D3D11 sub-program blob and parse its 5 entries
-      [0] type2  $Globals param table         (platform-neutral — reused verbatim)
+      [0] type2  $Globals param table         (platform-neutral - reused verbatim)
       [1] type15 vertex DXBC (DrawProcedural)  -> replaced with Metal VS (type23)
-      [2] type3  UnityPerMaterial param table  (platform-neutral — reused verbatim)
+      [2] type3  UnityPerMaterial param table  (platform-neutral - reused verbatim)
       [3] type17 fragment DXBC                 -> replaced with Metal FS (type24)
       [4] type15 vertex DXBC (Blit)            -> replaced with Metal VS (type23)
   * rebuild the blob (stored uncompressed: compressedLen == decompressedLen), set
@@ -139,7 +139,7 @@ def rewrap_shader(d, frag_msl, vert_msl, name):
             assert pm["source"] in (frag_msl, vert_msl), f"entry[{i}] source mismatch"
 
     # Unity stores shader sub-program blobs LZ4-block-compressed (no size prefix; the raw size
-    # lives in decompressedLengths). The engine ALWAYS LZ4-decompresses — an uncompressed blob,
+    # lives in decompressedLengths). The engine ALWAYS LZ4-decompresses - an uncompressed blob,
     # even with compressedLen==decompressedLen, yields "Failed to find expected binary data".
     comp = lz4.block.compress(new_blob, mode="high_compression", store_size=False)
     assert lz4.block.decompress(comp, uncompressed_size=len(new_blob)) == new_blob

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""verify_metal.py — headless proof that a ported .app's shaders are actually Metal.
+"""verify_metal.py - headless proof that a ported .app's shaders are actually Metal.
 
 The native player only brings up a Metal device if the shaders carry Metal sub-programs;
 a shader left as D3D11-only renders pink/black (or, if ALL of them are, you get
@@ -10,7 +10,7 @@ app's Data and reports its serialized `platforms` list:
     14 = Metal  (kMetal)        <- what a working native port must have
 
 Exits non-zero if any shader lacks Metal, so it can gate a build script. This is the one
-piece of end-to-end verification that does NOT need a display — a Unity player cannot be
+piece of end-to-end verification that does NOT need a display - a Unity player cannot be
 launched behind a locked screen, but this can run at 4am.
 
 Usage:  python3 verify_metal.py <App.app/Contents/Resources/Data>   [--quiet]

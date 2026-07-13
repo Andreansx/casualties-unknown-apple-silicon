@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-unity_metal_blob.py — build & parse Unity 2022.3 Metal shader sub-program blobs.
+unity_metal_blob.py - build & parse Unity 2022.3 Metal shader sub-program blobs.
 
 This is the byte-exact core of the Path 3-lite "hard tail": serialise a Metal Shading
 Language (MSL) source string into the container Unity's engine parses at load time, so a
@@ -14,7 +14,7 @@ Format was reverse-engineered from
       - feeds the source to newLibraryWithSource: (source path) unless a 0x100 flag
         selects newLibraryWithData: (precompiled-metallib path).
 
-A single-variant Metal program sub-program entry (what these post-fx use — no keywords):
+A single-variant Metal program sub-program entry (what these post-fx use - no keywords):
 
   outer wrapper (32 bytes):
      u32  0x0C0A75BA          # ShaderGpuProgram tag
@@ -67,7 +67,7 @@ def build_metal_program(msl_source: str, gpu_program_type: int, trailing: bytes 
     `trailing` is the input-binding / vertex-channel structure that follows the program payload
     in a real Unity code entry. It is platform-independent (it describes the ShaderLab pass'
     vertex channels), so when swapping a D3D entry for a Metal one we MUST carry the original
-    entry's trailing bytes across — the engine's GpuProgram loader reads it after the source, and
+    entry's trailing bytes across - the engine's GpuProgram loader reads it after the source, and
     a missing/short one makes it reject the program ("Failed to load GpuProgram from binary shader
     data"). For a fullscreen post-fx VS (no vertex attributes) it is 10 zero-ish bytes; a VS with
     N attributes carries an N-entry channel map.

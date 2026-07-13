@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# port.sh — ONE COMMAND: Windows Unity build -> native ARM64 + Metal macOS .app.
+# port.sh - ONE COMMAND: Windows Unity build -> native ARM64 + Metal macOS .app.
 #
 # This is transplant.sh PLUS everything that used to be applied by hand afterwards and was
 # therefore re-discovered painfully on every rebuild (ROADMAP: "fold into transplant.sh when
-# rebuilding"). Nothing here is new science — it is the exact recipe that produced the working
+# rebuilding"). Nothing here is new science - it is the exact recipe that produced the working
 # 5.1 port, parameterised so the 7.0 demo (and 8.0, and 1.0) is a single invocation.
 #
 #   ./port.sh --win ~/Games/CU_demo_7 --out ~/Applications/Casualties.Unknown.Demo.v7.0.macOS.arm64.Metal.Native.app
 #
-# Steps (each is a documented fix — see ROADMAP.md "Native runtime fixes" + docs/port-7.0.md):
+# Steps (each is a documented fix - see ROADMAP.md "Native runtime fixes" + docs/port-7.0.md):
 #   1. transplant   Windows Data -> stock macOS ARM64 Unity player (donor), x86 plugins dropped
 #   2. BCL swap     22 .NET assemblies from the DONOR over the game's WINDOWS-flavor ones.
 #                   The Windows BCL P/Invokes kernel32 -> EntryPointNotFoundException x69k ->
@@ -48,7 +48,7 @@ WIN=""; OUT=""; DONOR="$REPO/EmptyMac.app"; EXEC_NAME="CasualtiesUnknown"
 #                   transplant_stock.py then skips all 40 with "NOT IN DONOR" -> a build that
 #                   looks fine and renders pink. Guarded below.
 SHADER_DONOR="$HOME/UnityProjects/EmptyMac/Build/Donor.app"
-# NB: this also decides persistentDataPath (~/Library/Application Support/<id>) — i.e. where
+# NB: this also decides persistentDataPath (~/Library/Application Support/<id>) - i.e. where
 # saves and keybinds.json live. Changing it starts the game with a fresh bind table; step 5
 # migrates keybinds.json so the RMB->LeftAlt trackpad fix survives.
 BUNDLE_ID="com.orsoniks.casualtiesunknown.metal"
@@ -79,7 +79,7 @@ done
 [ -d "$DONOR" ] || die "no such donor .app: $DONOR"
 
 WIN_DATA="$(echo "$WIN"/*_Data)"
-[ -d "$WIN_DATA" ] || die "no <Name>_Data/ inside $WIN — is that a Unity build?"
+[ -d "$WIN_DATA" ] || die "no <Name>_Data/ inside $WIN - is that a Unity build?"
 
 # iCloud re-stamps com.apple.FinderInfo, which BREAKS codesign. Refuse to build into it.
 case "$OUT" in
@@ -105,7 +105,7 @@ if [ "$DO_SHADERS" = 1 ]; then
   SV="$(uver "$SHADER_DONOR/Contents/Resources/Data/globalgamemanagers")"
   [ "$SV" = "$WV" ] || die "shader donor is Unity $SV but the game is $WV"
 fi
-say "Unity $WV — game and donor(s) agree"
+say "Unity $WV - game and donor(s) agree"
 
 # ── python with UnityPy (persistent; the session scratchpad does not survive) ─
 VENV="$HOME/.cache/casualties-port/venv"
@@ -148,7 +148,7 @@ for f in "$DMAN"/*.dll; do
   cp -p "$f" "$GMAN/$b"
   n=$((n+1))
 done
-[ "$n" -ge 20 ] || die "only swapped $n BCL assemblies (expected ~22) — donor Managed/ looks wrong"
+[ "$n" -ge 20 ] || die "only swapped $n BCL assemblies (expected ~22) - donor Managed/ looks wrong"
 ok "$n BCL assemblies swapped (Windows originals kept in Contents/Resources/bcl-backup-win)"
 
 # ── 3. dataPath symlinks (language files + custom music) ────────────────────
@@ -182,7 +182,22 @@ if [ "$DO_RENAME" = 1 ]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID"        "$PLIST" 2>/dev/null || true
   ok "process will show as '$EXEC_NAME' (was '$CUR')"
 
-  # persistentDataPath on macOS is ~/Library/Application Support/<CFBundleIdentifier> — so
+  # Application.version on macOS = CFBundleShortVersionString from THIS Info.plist - NOT the
+  # bundleVersion in globalgamemanagers (that is the Windows path). The donor is an empty Unity
+  # project, whose default is "1.0", so without this the game's own beta banner renders
+  # "This is a beta build (1.0)" while the Windows/D3DMetal build correctly says 7.0.1.
+  # Source of truth = the GAME's ggm, so this tracks the real version across releases.
+  GAME_VER="$(strings -a "$WIN_DATA/globalgamemanagers" \
+              | grep -m1 -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || true)"
+  if [ -n "$GAME_VER" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $GAME_VER" "$PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GAME_VER"            "$PLIST" 2>/dev/null || true
+    ok "Application.version -> $GAME_VER (was the donor's 1.0)"
+  else
+    say "     WARNING: could not read game version from ggm - beta banner will show the donor's 1.0"
+  fi
+
+  # persistentDataPath on macOS is ~/Library/Application Support/<CFBundleIdentifier> - so
   # changing the bundle id MOVES the game's settings/save directory. That directory holds the
   # bind table, and the RMB->LeftAlt trackpad fix lives in it, so a fresh id silently restores
   # DEFAULT binds (iteminteract = Mouse1) and the tutorial's right-click DRAG becomes unusable.
@@ -203,10 +218,15 @@ else
 fi
 
 # ── 6. globalgamemanagers patches ───────────────────────────────────────────
-say "6/8  globalgamemanagers: Metal + vsync + retina"
+say "6/8  globalgamemanagers: Metal + vsync + retina + screen-lock fix"
 "$PY" "$HERE/rewrap/patch_ggm_metal.py"  "$DATA/globalgamemanagers" | sed 's/^/     /'
 "$PY" "$HERE/rewrap/patch_ggm_vsync.py"  "$DATA/globalgamemanagers" | sed 's/^/     /'
 "$PY" "$HERE/rewrap/patch_ggm_retina.py" "$DATA/globalgamemanagers" off | sed 's/^/     /'
+# runInBackground=True makes the player keep driving the Metal loop while the display is
+# ASLEEP, against a CAMetalLayer with no acquirable drawable -> it wedges and never recovers
+# (HUD frozen on "Composited", process must be killed). False parks the loop on resign-active
+# and it resumes instantly on unlock. USER-CONFIRMED FIX - do not drop this on a rebuild.
+"$PY" "$HERE/rewrap/patch_ggm_bool.py" "$DATA/globalgamemanagers" runInBackground off | sed 's/^/     /'
 
 # ── 7. shaders ──────────────────────────────────────────────────────────────
 if [ "$DO_SHADERS" = 1 ]; then
@@ -216,11 +236,11 @@ if [ "$DO_SHADERS" = 1 ]; then
       --donor-data "$SHADER_DONOR/Contents/Resources/Data" --game-data "$DATA" > "$STOCK_LOG" 2>&1 \
       || { tail -20 "$STOCK_LOG"; die "transplant_stock.py failed"; }
   tail -1 "$STOCK_LOG" | sed 's/^/     /'
-  # "transplanted 0 stock shaders" means the shader donor is the wrong build — a silent
+  # "transplanted 0 stock shaders" means the shader donor is the wrong build - a silent
   # pink-render bug that shipped once already. Never let it pass again.
   if grep -q "^transplanted 0 " "$STOCK_LOG"; then
     grep -c "NOT IN DONOR" "$STOCK_LOG" | sed 's/^/     NOT IN DONOR: /'
-    die "0 stock shaders transplanted — $SHADER_DONOR is not a DonorSetup build (see tools/donor/README.md)"
+    die "0 stock shaders transplanted - $SHADER_DONOR is not a DonorSetup build (see tools/donor/README.md)"
   fi
   rm -f "$STOCK_LOG"
   "$PY" "$HERE/rewrap/inject_custom_metal2.py" \
@@ -237,15 +257,15 @@ if [ "$DO_SIGN" = 1 ]; then
   codesign --force --deep --sign - "$OUT" 2>/dev/null || die "codesign failed (FinderInfo/iCloud?)"
   codesign --verify --deep --strict "$OUT" 2>/dev/null && ok "signature verifies"
 else
-  say "8/8  signing: SKIPPED (--no-sign) — it will NOT launch on Apple Silicon"
+  say "8/8  signing: SKIPPED (--no-sign) - it will NOT launch on Apple Silicon"
 fi
 
 echo
-say "verification (headless — no display needed)"
+say "verification (headless - no display needed)"
 BIN="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")"
 ARCHS="$(lipo -archs "$OUT/Contents/MacOS/$BIN")"
 case "$ARCHS" in *arm64*) ok "executable '$BIN' has an arm64 slice [$ARCHS]" ;;
-                 *) die "NO arm64 slice ($ARCHS) — that is the x86 player!" ;; esac
+                 *) die "NO arm64 slice ($ARCHS) - that is the x86 player!" ;; esac
 for d in Lang custommusic; do
   [ -d "$DATA/$d" ] && { [ -d "$OUT/Contents/$d" ] && ok "Contents/$d resolves" || die "broken symlink: Contents/$d"; }
 done

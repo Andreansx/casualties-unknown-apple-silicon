@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# transplant.sh — turn a Windows Unity (Mono) build into a native Apple Silicon .app
+# transplant.sh - turn a Windows Unity (Mono) build into a native Apple Silicon .app
 # by grafting the game's cross-platform data onto a stock macOS ARM64 Unity player.
 #
 # Model: managed CIL + assets are architecture-neutral. The macOS player (built by you
@@ -22,7 +22,7 @@
 #                   start with a platform/graphics mismatch). Default: use the Windows one.
 #   --win-builtin   Use the Windows built-in resources (unity default resources /
 #                   unity_builtin_extra). Default: keep the Mac ones (Metal shader variants).
-#   --no-sign       Skip ad-hoc codesign (NOT recommended on Apple Silicon — it won't launch).
+#   --no-sign       Skip ad-hoc codesign (NOT recommended on Apple Silicon - it won't launch).
 #   -h|--help       This help.
 #
 # Empirical test points (documented in ../README.md):
@@ -58,15 +58,15 @@ case "$OUT" in *.app) :;; *) die "--out should end in .app";; esac
 # ── locate source pieces ────────────────────────────────────────────────────
 WIN_DATA="$(find "$WIN" -maxdepth 1 -type d -name '*_Data' | head -1)"
 [ -n "$WIN_DATA" ] || die "no <Name>_Data/ under --win ($WIN)"
-[ -f "$WIN_DATA/globalgamemanagers" ] || die "no globalgamemanagers in $WIN_DATA — is this a Unity build?"
+[ -f "$WIN_DATA/globalgamemanagers" ] || die "no globalgamemanagers in $WIN_DATA - is this a Unity build?"
 [ -d "$WIN_DATA/Managed" ] || die "no Managed/ in $WIN_DATA"
 if [ -f "$WIN_DATA/il2cpp_data" ] || [ -d "$WIN_DATA/il2cpp_data" ] || ls "$WIN"/GameAssembly.dll >/dev/null 2>&1; then
-  die "this looks like IL2CPP, not Mono — a native transplant is not possible without source"
+  die "this looks like IL2CPP, not Mono - a native transplant is not possible without source"
 fi
 [ -d "$WIN_DATA/MonoBleedingEdge" ] || [ -d "$WIN/MonoBleedingEdge" ] || warn "no MonoBleedingEdge found on Windows side (unusual, but we use the Mac Mono anyway)"
 
 MAC_DATA="$MACAPP/Contents/Resources/Data"
-[ -d "$MAC_DATA" ] || die "no Contents/Resources/Data in --mac-app — is it a macOS Unity build?"
+[ -d "$MAC_DATA" ] || die "no Contents/Resources/Data in --mac-app - is it a macOS Unity build?"
 MAC_PLAYER_DYLIB="$(find "$MACAPP/Contents" -maxdepth 3 -name 'UnityPlayer.dylib' | head -1 || true)"
 [ -n "$MAC_PLAYER_DYLIB" ] || warn "UnityPlayer.dylib not found in --mac-app (some layouts embed it in the exe)"
 
@@ -123,7 +123,7 @@ run "xattr -dr com.apple.quarantine \"$OUT\" || true"
 if [ "$SIGN" = 1 ]; then
   log "ad-hoc code signing (Apple Silicon requires a valid signature to launch)"
   run "codesign --remove-signature \"$OUT\" 2>/dev/null || true"
-  run "codesign --force --deep --sign - \"$OUT\"" || warn "codesign failed — the app may be Gatekeeper-blocked; sign manually"
+  run "codesign --force --deep --sign - \"$OUT\"" || warn "codesign failed - the app may be Gatekeeper-blocked; sign manually"
 fi
 
 log "done → $OUT"

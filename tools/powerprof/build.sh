@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the native-build frame profiler shim (arm64 only — the native player is arm64).
+# Build the native-build frame profiler shim (arm64 only - the native player is arm64).
 # Output goes OUTSIDE iCloud-synced ~/Documents (com.apple.FinderInfo breaks codesign).
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)/frameprof.m"

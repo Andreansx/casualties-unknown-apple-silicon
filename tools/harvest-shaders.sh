@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# harvest-shaders.sh — run the game exactly like run-d3dmetal.sh, but with the D3DMetal
+# harvest-shaders.sh - run the game exactly like run-d3dmetal.sh, but with the D3DMetal
 # shader-harvest shim injected (ROADMAP Path 3-lite, step 1). It records the Metal shaders
-# D3DMetal generates at runtime from the game's D3D11 DXBC — the very shaders that are
-# "non-recoverable" from the static build — so they can be re-wrapped into a native Unity
+# D3DMetal generates at runtime from the game's D3D11 DXBC - the very shaders that are
+# "non-recoverable" from the static build - so they can be re-wrapped into a native Unity
 # Metal build later.
 #
 # HOW IT WORKS: the shim (tools/harvest/shim.m, built to $HARVEST_DIR/libharvestshim.dylib)
@@ -14,7 +14,7 @@
 #
 # What you get in $HARVEST_DIR (default ~/Games/d3dm-harvest):
 #   libs/data-*.metallib   every AIR library D3DMetal creates from the game's shaders
-#   libs/file-*.metallib   (a couple) D3DMetal's OWN internal blit/clear library — ignore
+#   libs/file-*.metallib   (a couple) D3DMetal's OWN internal blit/clear library - ignore
 #   manifest.jsonl         one JSON line per event (shimLoaded / device / installed / each dump)
 # Then identify + name the 4 custom post-fx with:  tools/harvest/identify.sh
 #
@@ -23,7 +23,7 @@
 #
 # NOTE ON FRAME CAPTURE: an Xcode/gputrace Metal capture is NOT done here. MTL_CAPTURE_ENABLED
 # wraps every device in a CaptureMTLDevice, and that layer together with any injected shim
-# crashes the game (each is fine alone). Harvesting the metallib IS the capture we want — it
+# crashes the game (each is fine alone). Harvesting the metallib IS the capture we want - it
 # yields the actual translated shader, more directly than a frame trace. If you ever want a
 # gputrace anyway, run the game with `MTL_CAPTURE_ENABLED=1` and NO shim, and attach Xcode.
 set -euo pipefail
@@ -54,7 +54,7 @@ export DYLD_FALLBACK_LIBRARY_PATH="$EXTERNAL:$GPTK/wine/lib:/usr/lib:/usr/local/
 # CRITICAL: export DYLD_INSERT_LIBRARIES *here* (in this script) and exec wine DIRECTLY.
 #  * The shim is a UNIVERSAL (arm64+x86_64) dylib. A single-arch x86_64 shim would make dyld
 #    reject/strip DYLD_INSERT_LIBRARIES in this arm64 shell before wine ever starts.
-#  * Do NOT launch via `arch -x86_64` — `arch` is SIP-protected and strips all DYLD_* vars.
+#  * Do NOT launch via `arch -x86_64` - `arch` is SIP-protected and strips all DYLD_* vars.
 #    wine64 is x86_64-only, so exec'ing it directly runs it under Rosetta automatically AND
 #    lets DYLD_INSERT_LIBRARIES survive into it. Verified 2026-07-12.
 export DYLD_INSERT_LIBRARIES="$SHIM"

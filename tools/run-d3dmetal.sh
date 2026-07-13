@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# run-d3dmetal.sh — launch the unmodified Windows build of Casualties: Unknown on
+# run-d3dmetal.sh - launch the unmodified Windows build of Casualties: Unknown on
 # Apple Silicon via Apple's D3DMetal (D3D11 -> Metal at runtime).
 #
 # This is the "translation layer" path (ROADMAP Path 1). It runs the ORIGINAL, unpatched
-# game .exe under Wine + Rosetta 2, translating Direct3D 11 to Metal — which sidesteps the
+# game .exe under Wine + Rosetta 2, translating Direct3D 11 to Metal - which sidesteps the
 # shader wall (the Windows build ships D3D11-only shaders, incl. custom Shader Graphs whose
 # source isn't recoverable, so a native Metal render path is not directly possible).
 #
-# FREE stack only — no CrossOver, no paid tools:
+# FREE stack only - no CrossOver, no paid tools:
 #   * Gcenx `game-porting-toolkit` Homebrew cask, which conveniently BUNDLES Apple's D3DMetal
 #     (D3DMetal.framework + libd3dshared.dylib under wine/lib/external/).
 #   * Rosetta 2 (Apple, built in) to run the x86-64 wine + game.
@@ -34,7 +34,7 @@ EXE="${1:-$HOME/Documents/casualtiesunknowncostam/CasualtiesUnknownDemo/Casualti
 
 # ── sanity ──────────────────────────────────────────────────────────────────
 die(){ printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
-[ -x "$WINE" ] || die "GPTK wine not found at $WINE — install: brew install --cask gcenx/wine/game-porting-toolkit"
+[ -x "$WINE" ] || die "GPTK wine not found at $WINE - install: brew install --cask gcenx/wine/game-porting-toolkit"
 [ -d "$EXTERNAL/D3DMetal.framework" ] || die "D3DMetal not bundled in this GPTK ($EXTERNAL). Need the Gcenx cask that ships D3DMetal."
 [ -f "$EXE" ] || die "game .exe not found: $EXE  (pass the path as arg 1)"
 

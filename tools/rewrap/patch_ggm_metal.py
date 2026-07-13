@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-patch_ggm_metal.py — flip a transplanted native build's `globalgamemanagers` to target Metal.
+patch_ggm_metal.py - flip a transplanted native build's `globalgamemanagers` to target Metal.
 
 The native ARM64 transplant is grafted from the *Windows* build, so its serialized settings say
 the build targets D3D11 only. Two fields must change for the player to bring up a Metal device
@@ -13,7 +13,7 @@ and accept Metal shaders:
      Without this: the player never selects Metal (falls back to NullGfxDevice) and every shader
      is "not supported on this GPU".
 
-Both are patched as SURGICAL binary edits (4 bytes each) — UnityPy's full re-serialization of
+Both are patched as SURGICAL binary edits (4 bytes each) - UnityPy's full re-serialization of
 `globalgamemanagers` corrupts it ("The file '...' is corrupted!"), so we never rewrite the whole
 file, only the two ints, located by signature.
 
@@ -44,7 +44,7 @@ def patch(path):
 
     # 2) BuildSettings.m_GraphicsAPIs [2] -> [16]. m_GraphicsAPIs is the LAST field of the
     #    BuildSettings object, serialised as vector<int> = [len=1, value=2]. Locate the object's
-    #    byte range with UnityPy (read-only — we do NOT let it re-serialise), then patch the value
+    #    byte range with UnityPy (read-only - we do NOT let it re-serialise), then patch the value
     #    of the trailing [1,2] pair.
     import UnityPy
     env = UnityPy.load(path)
@@ -72,4 +72,4 @@ if __name__ == "__main__":
         sys.exit(2)
     for name, how in patch(sys.argv[1]):
         print(f"patched {name}: {how}")
-    print("done — the build now targets Metal.")
+    print("done - the build now targets Metal.")

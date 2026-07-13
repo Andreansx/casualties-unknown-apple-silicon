@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""dxbc2msl.py — turn a Unity-stripped DXBC (ISGN/OSGN/SHDR only) back into a full DXBC
+"""dxbc2msl.py - turn a Unity-stripped DXBC (ISGN/OSGN/SHDR only) back into a full DXBC
 with a synthesized RDEF chunk (from Unity's serialized param tables), then feed it to the
 HLSLcc CLI to obtain Unity-ABI Metal MSL.
 
@@ -81,7 +81,7 @@ def build_rdef(dcls, names, stage, major=4):
                              'members': [(name, offset, class_, type_, rows, cols, elements)]}},
          'textures': {slot: str},
          'samplers': {slot: str},
-       }  — any missing entry gets a generic fallback.
+       }  - any missing entry gets a generic fallback.
     """
     strings = _Buf()
     stroffs = {}

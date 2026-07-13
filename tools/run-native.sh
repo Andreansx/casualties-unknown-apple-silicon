@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run-native.sh — launch the NATIVE ARM64/Metal build of Casualties: Unknown with Apple's
+# run-native.sh - launch the NATIVE ARM64/Metal build of Casualties: Unknown with Apple's
 # Metal Performance HUD, the same overlay `HUD=1 ./run-d3dmetal.sh` gives you on Path 1.
 #
 # This is the native path (ROADMAP Path 2/3): a real arm64 Unity player, 100% Metal, no Wine,
@@ -9,7 +9,7 @@
 #
 # Why a script instead of double-clicking the .app: the Metal HUD is opted into with the
 # MTL_HUD_ENABLED env var, and `open`/Finder do NOT pass your shell environment into the app
-# (they also strip DYLD_*). So we exec the bundle's binary directly — the bundle is ad-hoc
+# (they also strip DYLD_*). So we exec the bundle's binary directly - the bundle is ad-hoc
 # signed with no hardened runtime, so injected env vars survive. Same trick tools/powerprof
 # uses. If you want the HUD on Finder/Dock launches too, see --install-hud-default below.
 #
@@ -52,7 +52,7 @@ done
 # ── sanity ──────────────────────────────────────────────────────────────────
 [ -d "$APP" ] || die "native .app not found: $APP  (pass its path, or set APP=…)"
 BIN="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist" 2>/dev/null || true)"
-[ -n "$BIN" ] || die "no CFBundleExecutable in $APP/Contents/Info.plist — is that a real .app?"
+[ -n "$BIN" ] || die "no CFBundleExecutable in $APP/Contents/Info.plist - is that a real .app?"
 EXEC="$APP/Contents/MacOS/$BIN"
 [ -x "$EXEC" ] || die "bundle executable missing/not executable: $EXEC"
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')"
@@ -63,7 +63,7 @@ BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Conten
 ARCHS="$(lipo -archs "$EXEC" 2>/dev/null || echo unknown)"
 case "$ARCHS" in
   *arm64*) ;;
-  *) die "$BIN has no arm64 slice ($ARCHS) — that's the x86 player, not the native build." ;;
+  *) die "$BIN has no arm64 slice ($ARCHS) - that's the x86 player, not the native build." ;;
 esac
 
 # ── --install-hud-default: HUD for Finder/Dock launches, then exit ──────────
@@ -84,7 +84,7 @@ fi
 
 # ── HUD ─────────────────────────────────────────────────────────────────────
 # Apple's Metal Performance HUD: FPS + frame-time graph, GPU time, present interval, memory,
-# and the pipeline/allocation counters. Identical overlay to Path 1's HUD=1 — but here it's
+# and the pipeline/allocation counters. Identical overlay to Path 1's HUD=1 - but here it's
 # reporting on OUR Metal frames, not D3DMetal's translated ones.
 if [ "${HUD:-1}" = 1 ]; then
   export MTL_HUD_ENABLED=1
@@ -95,7 +95,7 @@ fi
 
 # ── optional: powerprof frame profiler ──────────────────────────────────────
 # The HUD tells you *that* a frame is expensive; frameprof tells you *why* (encoders, passes,
-# draws, per-cmdbuf GPU ms). This is what found the 97-passes/frame vsync bug — see
+# draws, per-cmdbuf GPU ms). This is what found the 97-passes/frame vsync bug - see
 # tools/powerprof/README.md.
 PROF_LOG=""
 if [ "${PROF:-0}" = 1 ]; then
@@ -116,7 +116,7 @@ fi
 
 # ── go ──────────────────────────────────────────────────────────────────────
 say "app     : $APP"
-say "binary  : $BIN [$ARCHS] — runs arm64 here: no Wine, no Rosetta, no D3D11"
+say "binary  : $BIN [$ARCHS] - runs arm64 here: no Wine, no Rosetta, no D3D11"
 say "hud     : $HUD_STATE"
 [ -n "$PROF_LOG" ] && say "powerprof: $PROF_LOG"
 [ ${#ARGS[@]} -gt 0 ] && say "args    : ${ARGS[*]}"

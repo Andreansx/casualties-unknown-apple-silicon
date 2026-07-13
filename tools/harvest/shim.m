@@ -1,22 +1,22 @@
-// shim.m — D3DMetal shader-harvest shim (ROADMAP Path 3-lite, step 1)  [LEAN build]
+// shim.m - D3DMetal shader-harvest shim (ROADMAP Path 3-lite, step 1)  [LEAN build]
 //
 // Injected via DYLD_INSERT_LIBRARIES into the x86_64 wine/game process launched by
 // tools/harvest-shaders.sh. It dumps every AIR metallib D3DMetal generates from the game's
-// DXBC — the translated Metal shaders — plus a JSONL manifest of what fired.
+// DXBC - the translated Metal shaders - plus a JSONL manifest of what fired.
 //
 // WHY PURE C / NO FRAMEWORK LINKAGE (this is load-bearing, do not "clean up"):
 // An earlier version linked Metal.framework + Foundation.framework. DYLD_INSERT_LIBRARIES
-// loads the shim (and thus those frameworks) VERY EARLY — during wine's preloader stage,
+// loads the shim (and thus those frameworks) VERY EARLY - during wine's preloader stage,
 // before ntdll reserves the low Windows address space. That early framework load stole
 // wine's low memory ("preloader: failed to reserve range 0x10000-0x110000") and the game
 // crashed 3/3 (execute-fault at a fixed Windows address), EVEN with zero swizzling. Loading
-// Metal LATE (when D3DMetal itself inits, after wine is set up) is fine — proven by running
+// Metal LATE (when D3DMetal itself inits, after wine is set up) is fine - proven by running
 // the game with MTL_CAPTURE_ENABLED=1 and no shim.
 //
 // So this shim links NOTHING heavy: just libSystem + libobjc + libdispatch + dl. It stays
 // completely inert until a background poll sees Metal already loaded in-process
 // (dlopen(Metal, RTLD_NOLOAD) != NULL == D3DMetal has initialized and wine is up). Only then
-// does it touch Metal — via dlsym'd MTLCreateSystemDefaultDevice + ObjC-runtime swizzling —
+// does it touch Metal - via dlsym'd MTLCreateSystemDefaultDevice + ObjC-runtime swizzling -
 // which is the safe, late window. No __interpose (that needs Metal symbols at link → early
 // load). Everything is @try/guarded: a harvest failure must never take down the game.
 //
@@ -277,7 +277,7 @@ static void install_on_class(Class c) {
 }
 
 // ── optional: write a real Xcode `.gputrace` frame capture (HARVEST_CAPTURE=1) ──
-// Pure ObjC-runtime calls — MTLCaptureManager / MTLCaptureDescriptor / NSString / NSURL are
+// Pure ObjC-runtime calls - MTLCaptureManager / MTLCaptureDescriptor / NSString / NSURL are
 // all loaded by the time Metal is up, so we reach them by class name without linking anything.
 // Requires MTL_CAPTURE_ENABLED=1 in the environment (set by harvest-shaders.sh CAPTURE=1).
 // Runs WITHOUT swizzling (capture-only mode) so it can't perturb D3DMetal's library creation.
@@ -308,14 +308,14 @@ static void capture_once(id dev, const char *outpath) {
                     sel_registerName("startCaptureWithDescriptor:error:"), desc, &err);
     logline("\"event\":\"capture\",\"supported\":%ld,\"ok\":%ld,\"out\":\"%s\"", sup, ok, outpath);
     if (ok) {
-        usleep(300 * 1000);   // ~36 frames at 120fps — spans several full frames
+        usleep(300 * 1000);   // ~36 frames at 120fps - spans several full frames
         ((void(*)(id,SEL))objc_msgSend)(mgr, sel_registerName("stopCapture"));
         logline("\"event\":\"captureDone\",\"out\":\"%s\"", outpath);
     }
 }
 
 // Auto-capture once ~12s after engage (gives the game time to reach steady-state rendering
-// where the always-on post-fx — ScreenPass, AberrationShader — are bound), and also on demand
+// where the always-on post-fx - ScreenPass, AberrationShader - are bound), and also on demand
 // whenever a `trigger` file appears in HARVEST_DIR.
 static void capture_loop(id dev) {
     char trig[1200]; snprintf(trig, sizeof trig, "%s/trigger", harvest_dir());
@@ -344,7 +344,7 @@ static void *engage(void *arg) {
                 id dev = create();            // safe now: Metal up, wine address space set
                 if (dev) {
                     // Capture-only mode (HARVEST_CAPTURE + HARVEST_CAPTURE_ONLY): don't swizzle,
-                    // just record a .gputrace — mirrors the stable "MTL_CAPTURE_ENABLED, no
+                    // just record a .gputrace - mirrors the stable "MTL_CAPTURE_ENABLED, no
                     // library hooks" configuration.
                     if (getenv("HARVEST_CAPTURE_ONLY") == NULL)
                         install_on_class(object_getClass(dev));
@@ -360,7 +360,7 @@ static void *engage(void *arg) {
 }
 
 __attribute__((constructor)) static void init(void) {
-    // Constructor must be FEATHERWEIGHT — it runs in every process in the launch chain,
+    // Constructor must be FEATHERWEIGHT - it runs in every process in the launch chain,
     // including wine's preloader. Just note we loaded and spawn the late-engage poller.
     const char *pn = getprogname();
     logline("\"event\":\"shimLoaded\",\"proc\":\"%s\",\"pid\":%d", pn ? pn : "?", getpid());

@@ -2,7 +2,7 @@
 
 Headless IDA Pro scripts used to characterize the shipped native Burst plugin
 (`CasualtiesUnknown_Data/Plugins/x86_64/lib_burst_generated.dll`). They load only that
-one Unity-generated native plugin — no game code, no assets.
+one Unity-generated native plugin - no game code, no assets.
 
 Requires IDA Pro 9.x with the idalib Python package activated (see
 `<IDA>/idalib/python/py-activate-idalib.py`). Run with the idalib-enabled interpreter:
@@ -24,7 +24,7 @@ python3 decomp_top.py /path/to/lib_burst_generated.dll 0x18000E340 0x18002AA90
 
 See the root `README.md` → "idalib RE of `lib_burst_generated.dll`" for the full writeup.
 
-## `transplant.sh` — build the native Apple Silicon `.app`
+## `transplant.sh` - build the native Apple Silicon `.app`
 
 Grafts the Windows build's cross-platform data (managed CIL + assets) onto a stock macOS
 ARM64 Unity player you build yourself, drops the x86-only native plugins (Burst → managed

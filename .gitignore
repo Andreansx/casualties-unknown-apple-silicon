@@ -1,9 +1,9 @@
-# ── Game binaries — NEVER commit ─────────────────────────────
+# ── Game binaries - NEVER commit ─────────────────────────────
 # Copyrighted game content + ~300 MB of binaries. Kept locally only.
 CasualtiesUnknownDemo/
 CasualtiesUnknown/
 
-# ── Build output — the ported macOS .app is the deliverable ───
+# ── Build output - the ported macOS .app is the deliverable ───
 # Contains transplanted game data; don't push it to git.
 build/
 dist/
@@ -13,7 +13,7 @@ dist/
 UnityEmptyProject/
 EmptyMacBuild/
 
-# ── Shader-harvest artifacts — derived from the game's shaders, NEVER commit ──
+# ── Shader-harvest artifacts - derived from the game's shaders, NEVER commit ──
 # The metallibs/AIR/DXBC are D3DMetal's runtime translation of the game's own shaders.
 # Tooling (tools/harvest/*.m,*.sh,*.py) is fine to commit; the harvested binaries are not.
 d3dm-harvest/
@@ -22,7 +22,7 @@ d3dm-harvest/
 *.dxbc
 libharvestshim.dylib
 
-# Recovered MSL shader source (tools/rewrap/msl/*.metal) is game-derived content — the exact
+# Recovered MSL shader source (tools/rewrap/msl/*.metal) is game-derived content - the exact
 # post-fx logic reconstructed from the game's shaders. Like the DXBC/AIR above, keep it LOCAL.
 # The re-wrap TOOL (tools/rewrap/*.py) is committed; each user regenerates the MSL themselves.
 tools/rewrap/msl/

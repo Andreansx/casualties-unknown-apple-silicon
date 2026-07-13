@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""patch_ggm_bool.py — flip ANY PlayerSettings bool in `globalgamemanagers`, surgically.
+"""patch_ggm_bool.py - flip ANY PlayerSettings bool in `globalgamemanagers`, surgically.
 
 Generalises the trick patch_ggm_retina.py / patch_ggm_metal.py already use: UnityPy's full
 re-serialization CORRUPTS globalgamemanagers, so instead we
 
   1. re-serialize the PlayerSettings object from its typetree and assert byte-identity with
-     what is on disk (proves the writer round-trips this exact layout — if it doesn't, the
+     what is on disk (proves the writer round-trips this exact layout - if it doesn't, the
      layout drifted and we abort rather than write garbage),
   2. flip the field, re-serialize, and assert exactly ONE byte changed (it's a bool),
   3. poke that single byte into the file.
@@ -62,7 +62,7 @@ def patch(path, field, want):
     if not isinstance(cur, bool):
         raise RuntimeError(f"{field} is {type(cur).__name__}, not a bool")
     if cur == want:
-        print(f"{field} already {cur} — nothing to do")
+        print(f"{field} already {cur} - nothing to do")
         return
 
     on_disk = bytes(raw[o.byte_start:o.byte_start + o.byte_size])

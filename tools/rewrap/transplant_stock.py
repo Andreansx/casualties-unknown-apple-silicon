@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-transplant_stock.py — Path 2 (Bucket A): give the game's ~40 STOCK shaders native Metal
+transplant_stock.py - Path 2 (Bucket A): give the game's ~40 STOCK shaders native Metal
 variants by transplanting them wholesale from a donor Mac build.
 
 The donor is an empty Unity project built on macOS with EXACTLY the game's engine +
 package versions (2022.3.62f3, URP 14.0.12, TMP 3.0.7) and the target shaders forced in
-via Always Included Shaders — so Unity itself compiles every keyword variant to Metal.
+via Always Included Shaders - so Unity itself compiles every keyword variant to Metal.
 Because engine + package versions match, the donor's serialized Shader object is the
-same shader, same typetree — so unlike the custom Shader Graphs (per-entry MSL surgery
+same shader, same typetree - so unlike the custom Shader Graphs (per-entry MSL surgery
 in inject_metal.py), a stock shader can be swapped as a whole:
 
     m_ParsedForm            <- donor (passes/keywords/param tables, internally consistent)
@@ -38,7 +38,7 @@ import UnityPy
 DONOR_FIELDS = ["m_ParsedForm", "platforms", "offsets", "compressedLengths",
                 "decompressedLengths", "compressedBlob", "stageCounts"]
 
-CUSTOM_PREFIX = "Shader Graphs/"  # Bucket B — never touched here
+CUSTOM_PREFIX = "Shader Graphs/"  # Bucket B - never touched here
 
 
 def load_shaders(data_dir):
@@ -111,7 +111,7 @@ def main():
         print(f"-- SKIP {name}: {why}")
 
     if args.dry_run:
-        print(f"\n[dry-run] {len(done)} transplantable, {len(skipped)} skipped — nothing written")
+        print(f"\n[dry-run] {len(done)} transplantable, {len(skipped)} skipped - nothing written")
         return
     for f, env in touched_files:
         # materialize before truncating: UnityPy reads untouched objects lazily from the source
