@@ -183,16 +183,21 @@ if [ "$DO_RENAME" = 1 ]; then
   ok "process will show as '$EXEC_NAME' (was '$CUR')"
 
   # persistentDataPath on macOS is ~/Library/Application Support/<CFBundleIdentifier> — so
-  # changing the bundle id MOVES the game's save/keybind directory. keybinds.json is where the
-  # RMB->LeftAlt trackpad fix lives (the game has no rebinding UI), so a fresh id silently
-  # regenerates DEFAULT binds and right-click is unusable again. Carry it across.
+  # changing the bundle id MOVES the game's settings/save directory. That directory holds the
+  # bind table, and the RMB->LeftAlt trackpad fix lives in it, so a fresh id silently restores
+  # DEFAULT binds (iteminteract = Mouse1) and the tutorial's right-click DRAG becomes unusable.
+  # NB: 7.0 keeps binds in settings.json (ints); 5.1 used keybinds.json (names). Carry both.
   SUP="$HOME/Library/Application Support"
-  if [ "$OLD_ID" != "$BUNDLE_ID" ] && [ -f "$SUP/$OLD_ID/keybinds.json" ] \
-     && [ ! -f "$SUP/$BUNDLE_ID/keybinds.json" ]; then
-    mkdir -p "$SUP/$BUNDLE_ID"
-    cp -p "$SUP/$OLD_ID/keybinds.json" "$SUP/$BUNDLE_ID/keybinds.json"
-    ok "migrated keybinds.json from $OLD_ID (RMB->LeftAlt fix preserved)"
+  if [ "$OLD_ID" != "$BUNDLE_ID" ]; then
+    for f in settings.json keybinds.json; do
+      if [ -f "$SUP/$OLD_ID/$f" ] && [ ! -f "$SUP/$BUNDLE_ID/$f" ]; then
+        mkdir -p "$SUP/$BUNDLE_ID"
+        cp -p "$SUP/$OLD_ID/$f" "$SUP/$BUNDLE_ID/$f"
+        ok "migrated $f from $OLD_ID"
+      fi
+    done
   fi
+  say "     after first launch: tools/rewrap/patch_keybinds.py iteminteract LeftAlt"
 else
   say "5/8  bundle identity: --keep-exec, leaving as-is"
 fi

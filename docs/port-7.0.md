@@ -254,6 +254,77 @@ patches the **app's** Data (`--dst-data`) — never the other way round.
 
 ---
 
+## 5b. Post-launch bugs found in real gameplay (2026-07-13) — and what they actually were
+
+The port rendered correctly on first launch (player Expie visible, everything looks right).
+Three issues surfaced in play; **two were the same root cause, and neither was a rendering bug.**
+
+### ✅ "Option doesn't work as RMB" + "the item won't stay in my inventory" — ONE bug
+
+**The bind store MOVED in 7.0.** 5.1 kept binds in `keybinds.json`
+(`{"binds": {"iteminteract": "Mouse1"}}` — KeyCode *names*). **7.0 folded them into the Settings
+system:** `settings.json`, a flat list of `{"name":…, "value":…}` where a keybind's value is the
+KeyCode's **integer** (`Mouse1 = 324`, `LeftAlt = 308`). There is **no `keybinds.json` anywhere in
+the 7.0 assembly** — the migrated one was silently ignored, the game fell back to defaults
+(`iteminteract = 324`), and the rebind looked like it did nothing.
+
+Why that *also* broke the inventory drag — from the CIL, `PlayerCamera::HandleDragging` does:
+
+```
+GetKeyDown(bind("iteminteract"))  -> start drag
+GetKeyUp  (bind("iteminteract"))  -> DROP
+```
+
+The entire drag hangs off **one bind**. With `Mouse1` you must hold a two-finger click *steady*
+while moving the cursor with the same fingers — a trackpad can't, so the release fires in the
+wrong place and the item never lands in the slot. Bound to a held key, it's trivial: hold Option,
+move the pointer with one finger, release over the slot.
+
+Fix: `tools/rewrap/patch_keybinds.py iteminteract LeftAlt` (rewritten — it now auto-detects the
+7.0 `settings.json` vs the 5.1 `keybinds.json` and speaks KeyCode names either way). 7.0 also has
+a real in-game rebinding UI (`SettingKeybind`/`keybindnotset`), so Settings → Controls works too.
+**The game rewrites `settings.json` on exit — quit it before editing (the tool refuses if it's
+running).**
+
+Useful facts confirmed from the CIL while chasing this:
+- The **only** direct mouse read in the whole assembly is `AdaptiveButton::Update` →
+  `GetMouseButtonDown(0)`. Nothing else hardcodes a mouse button.
+- There are **no** `PointerEventData.button` checks and **no** EventSystem drag handlers — all
+  gameplay input goes through `KeyBinds.GetBind(name)`, and Unity's `KeyCode` enum covers
+  `Mouse0..Mouse6`, which is how one bind table holds both mice and keys.
+- `KeyBinds.GetBind` returns **`KeyCode.None` (0)** for an unknown action — a missing bind fails
+  silently, it does not throw.
+
+### 🔬 Hang after screen-lock / display-sleep (needs your confirmation)
+
+Symptom: lock the Mac mid-game (⌘⌃Q), let the display sleep, log back in → the game is wedged,
+Metal HUD frozen on "Composited"/presentation OFF, and the process must be killed.
+**No managed exception in `Player.log`** — so it's a graphics/window stall, not game code.
+
+`fullscreenMode` was already `1` (borderless FullScreenWindow, not exclusive) and
+`runInBackground` was **True** — and that last one is the suspect: the player keeps driving the
+Metal loop while the display is asleep and the `CAMetalLayer` has no acquirable drawable, so it
+wedges and never recovers. Applied `patch_ggm_bool.py runInBackground off`, so Unity parks the
+player loop on resign-active and should resume cleanly on unlock.
+
+```bash
+python3 tools/rewrap/patch_ggm_bool.py <app>/Contents/Resources/Data/globalgamemanagers runInBackground off
+codesign --force --deep -s - <app>
+```
+
+`patch_ggm_bool.py` is a generalised, surgical single-byte PlayerSettings bool patcher (UnityPy's
+full re-serialization corrupts `globalgamemanagers`; it verifies byte-identity first, then asserts
+exactly one byte changed). `--list` dumps every bool. **UNCONFIRMED — needs a lock/unlock test.**
+If it doesn't hold, the fallback is windowed mode (`WINDOWED=1 tools/run-native.sh …`).
+
+### ℹ️ "It still says 1.0 Demo" — not our bug
+
+The game's own `globalgamemanagers` carries `1.0` as its version string (there's a separate
+`7.0.1` in there). The Windows build says the same thing. The devs just didn't bump it — nothing
+about the port is stale, and the extra tutorial content confirms it's the 7.0 content.
+
+---
+
 ## 6. What needs a HUMAN (and what does not)
 
 **Headless-safe (no display, screen may be locked/off):** the whole of §5 steps 1–5, and all of
