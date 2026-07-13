@@ -254,37 +254,62 @@ patches the **app's** Data (`--dst-data`) — never the other way round.
 
 ---
 
-## 5b. Post-launch bugs found in real gameplay (2026-07-13) — and what they actually were
+## 5b. Post-launch findings from real gameplay (2026-07-13)
 
 The port rendered correctly on first launch (player Expie visible, everything looks right).
-Three issues surfaced in play; **two were the same root cause, and neither was a rendering bug.**
+**No rendering work was needed after the build.** Three issues surfaced in play; one was a real
+port issue, one is still open, and one was NOT a bug at all.
 
-### ✅ "Option doesn't work as RMB" + "the item won't stay in my inventory" — ONE bug
+### ✅ REAL: "Option doesn't work as RMB" — the bind store MOVED in 7.0
 
-**The bind store MOVED in 7.0.** 5.1 kept binds in `keybinds.json`
-(`{"binds": {"iteminteract": "Mouse1"}}` — KeyCode *names*). **7.0 folded them into the Settings
-system:** `settings.json`, a flat list of `{"name":…, "value":…}` where a keybind's value is the
-KeyCode's **integer** (`Mouse1 = 324`, `LeftAlt = 308`). There is **no `keybinds.json` anywhere in
-the 7.0 assembly** — the migrated one was silently ignored, the game fell back to defaults
-(`iteminteract = 324`), and the rebind looked like it did nothing.
+5.1 kept binds in `keybinds.json` (`{"binds": {"iteminteract": "Mouse1"}}` — KeyCode *names*).
+**7.0 folded them into the Settings system:** `settings.json`, a flat list of
+`{"name":…, "value":…}` where a keybind's value is the KeyCode's **integer** (`Mouse1 = 324`,
+`LeftAlt = 308`). There is **no `keybinds.json` anywhere in the 7.0 assembly** — the one we
+migrated was silently ignored, the game fell back to defaults (`iteminteract = 324`), and the
+rebind looked like it did nothing.
 
-Why that *also* broke the inventory drag — from the CIL, `PlayerCamera::HandleDragging` does:
-
-```
-GetKeyDown(bind("iteminteract"))  -> start drag
-GetKeyUp  (bind("iteminteract"))  -> DROP
-```
-
-The entire drag hangs off **one bind**. With `Mouse1` you must hold a two-finger click *steady*
-while moving the cursor with the same fingers — a trackpad can't, so the release fires in the
-wrong place and the item never lands in the slot. Bound to a held key, it's trivial: hold Option,
-move the pointer with one finger, release over the slot.
-
-Fix: `tools/rewrap/patch_keybinds.py iteminteract LeftAlt` (rewritten — it now auto-detects the
-7.0 `settings.json` vs the 5.1 `keybinds.json` and speaks KeyCode names either way). 7.0 also has
-a real in-game rebinding UI (`SettingKeybind`/`keybindnotset`), so Settings → Controls works too.
+Fix: `tools/rewrap/patch_keybinds.py iteminteract LeftAlt` (rewritten — auto-detects the 7.0
+`settings.json` vs the 5.1 `keybinds.json` and speaks KeyCode names either way). 7.0 also has a
+real in-game rebinding UI (`SettingKeybind`/`keybindnotset`), so Settings → Controls works too.
 **The game rewrites `settings.json` on exit — quit it before editing (the tool refuses if it's
-running).**
+running).** ✅ User-confirmed: Option now works as RMB.
+
+Rebinding is still worth doing on a laptop even though right-click *itself* works via two-finger
+click: the game's drag hangs off ONE bind — `PlayerCamera::HandleDragging` starts on
+`GetKeyDown(bind)` and DROPS on `GetKeyUp(bind)` — and holding a two-finger click steady while
+moving the cursor with the same fingers is miserable. Hold Option, move with one finger, release.
+
+### ❌ NOT A BUG: "the item won't stay in my inventory"
+
+**This was a tutorial UX misunderstanding, not a port defect.** You must first put the **trash bag
+itself into your inventory**, and only then drag the item out of the bag's inventory. The bag's
+container UI looks *identical* whether or not the bag is in your inventory, so it reads as though
+dragging straight out of the world container should work. The tutorial doesn't say this.
+
+Confirmed identical behaviour on **both** the native Metal port and the D3DMetal reference, so
+nothing about the port is involved. **Do not go looking for a coordinate-space/raycast bug here** —
+an earlier revision of this doc wrongly blamed the keybind for it.
+
+**The method that settled it is worth reusing** — this is what Path 1 is *for*. Run the untouched
+Windows build under Wine + D3DMetal on the *same* game data and settings:
+
+```bash
+tools/run-d3dmetal.sh ~/Games/CU_demo_7/CasualtiesUnknown.exe
+```
+
+It shares everything that could be game logic (same `Assembly-CSharp`, same assets, same
+`settings.json`, same trackpad) and none of what we changed (original D3D11 shaders via Apple's
+translator, original Windows BCL, Burst intact, unpatched `globalgamemanagers`, x86 under Rosetta).
+Same behaviour on both ⇒ the port is exonerated in one run. Seed the prefix's settings first so
+the binds match, at:
+`~/Games/CasualtiesUnknown/drive_c/users/crossover/AppData/LocalLow/Orsoniks/CasualtiesUnknown/`
+
+FWIW the drop logic, for anyone who does end up in here: `GetKeyUp` →
+`UIUtil.IsPointerOverUIElement()` (an `EventSystem.RaycastAll` at `Input.mousePosition`) →
+`TryPerformInventoryAction`, which *first* requires the dragged image's rect to **`Overlaps`** the
+slot's rect (not merely the pointer to be inside it — see the `inventoryuseleniency` setting) and
+returns false otherwise.
 
 Useful facts confirmed from the CIL while chasing this:
 - The **only** direct mouse read in the whole assembly is `AdaptiveButton::Update` →
