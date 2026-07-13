@@ -330,6 +330,34 @@ Note the bind file lives under the **donor's** bundle id
 (`~/Library/Application Support/com.DefaultCompany.2DProject/`), since the transplant inherits the
 donor `.app`'s `Info.plist`; and binds are cached in a static, so restart the game after editing.
 
+## Running the native port (with the Metal HUD)
+
+The native `.app` double-clicks like any Mac game. But the Metal Performance HUD — the FPS /
+frame-time / GPU-time overlay you get on Path 1 with `HUD=1` — is opted into with an **env var**,
+and Finder does not pass your shell environment to an app. So there's a launcher for it:
+
+```sh
+./tools/run-native.sh              # launch with the HUD (default)
+HUD=0   ./tools/run-native.sh      # plain launch, no overlay
+WINDOWED=1 ./tools/run-native.sh   # 1600x900 window instead of fullscreen (RES=… to change)
+PROF=1  ./tools/run-native.sh      # + the tools/powerprof JSONL frame profiler
+```
+
+It execs the bundle's binary **directly** (`…/CU_metaltest.app/Contents/MacOS/EmptyMac`) rather than
+going through `open`, which is what makes `MTL_HUD_ENABLED` — and `DYLD_INSERT_LIBRARIES` for
+`PROF=1` — actually reach the process. Defaults to `~/Applications/CU_metaltest.app`; pass another
+path or set `APP=`. It refuses to run a bundle with no arm64 slice, so it can't quietly launch the
+x86 player under Rosetta and call it "native".
+
+Want the HUD on Finder/Dock launches too? `./tools/run-native.sh --install-hud-default` sets Metal's
+per-app `MetalForceHudEnabled` default on the bundle ID (undo: `--uninstall-hud-default`).
+
+Same overlay as Path 1 — but now it's reporting on **our** Metal frames, not D3DMetal's translated
+ones, which is exactly how the [head-to-head numbers](#head-to-head-native-vs-d3dmetal-same-scene-same-method-)
+above got sanity-checked.
+
+---
+
 ## Rebuilding the native port yourself
 
 Not a one-command flow yet — it needs Unity and a few passes. Order:
@@ -452,7 +480,8 @@ Apple-Silicon path, or may ship an official Mac build.
 
 | Path | What |
 |---|---|
-| `tools/run-d3dmetal.sh` | **Path 1 launcher** — the one command that plays the game. |
+| `tools/run-d3dmetal.sh` | **Path 1 launcher** — the one command that plays the game. `HUD=1` for the Metal overlay. |
+| `tools/run-native.sh` | **Native launcher** — runs the ARM64/Metal `.app` with the same Metal HUD (`HUD=1` by default), plus `WINDOWED=1` / `PROF=1`. |
 | `tools/transplant.sh` | Graft the Windows payload onto a native ARM64 Unity player. |
 | `tools/donor/` | Unity editor script to build the version-matched Mac shader donor. |
 | `tools/rewrap/` | The shader pipeline: `transplant_stock.py` (40 stock), `inject_custom_metal2.py` (20 custom, via HLSLcc), `patch_ggm_*.py` (Metal / vsync / retina), `patch_keybinds.py`. |
