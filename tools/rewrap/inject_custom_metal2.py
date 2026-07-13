@@ -63,6 +63,22 @@ TYPE_INFO = {  # MSL constant-address-space size/alignment
     "float2": (8, 8), "int2": (8, 8), "uint2": (8, 8),
     "float3": (16, 16), "int3": (16, 16), "uint3": (16, 16),
     "float4": (16, 16), "int4": (16, 16), "uint4": (16, 16),
+    # packed_* — same bytes, alignment 4. The escape hatch for D3D-packed vectors
+    # whose serialized offset MSL cannot align a normal vector to (see PACKED).
+    "packed_float2": (8, 4), "packed_int2": (8, 4), "packed_uint2": (8, 4),
+    "packed_float3": (12, 4), "packed_int3": (12, 4), "packed_uint3": (12, 4),
+    "packed_float4": (16, 4), "packed_int4": (16, 4), "packed_uint4": (16, 4),
+}
+
+# D3D packs a vector at ANY 4-byte offset that doesn't straddle a 16-byte row, so a float2
+# legitimately lands at e.g. @20 or @148 (4 mod 8) — and MSL simply cannot align a `float2`
+# member there. `packed_float2` has alignment 4 with identical size and byte layout, so it
+# expresses the offset exactly; reads are then converted back with `float2(cb.member)`.
+# This is what kept ScreenPass/DamageScreen hand-authored until 7.0 — now they're automatic.
+PACKED = {
+    "float2": "packed_float2", "int2": "packed_int2", "uint2": "packed_uint2",
+    "float3": "packed_float3", "int3": "packed_int3", "uint3": "packed_uint3",
+    "float4": "packed_float4", "int4": "packed_int4", "uint4": "packed_uint4",
 }
 
 
@@ -124,6 +140,8 @@ def enrich_names(pass_d, prog_d, pentry):
 
 # ── MSL struct re-layout ─────────────────────────────────────────────────────
 
+PACKED_HITS = set()   # {"<shader>:<cb>.<member>@<type>"} — reported by main()
+
 STRUCT_RE = re.compile(r"(struct\s+([\w$]+)\s*\{)(.*?)(\};)", re.S)
 MEMBER_RE = re.compile(r"([\w$]+)\s+([\w$]+)\s*(?:\[(\d+)\])?\s*;")
 BUF_RE = re.compile(r"constant\s+([\w$]+)\s*&\s*([\w$]+)\s*\[\[\s*buffer\((\d+)\)\s*\]\]")
@@ -182,10 +200,17 @@ def relayout_cb_structs(msl, offsets_by_slot, tag_for_log):
             orig_off += size
         placed.sort()
         spans = []
-        for off, ty, nm, arr in placed:
+        repacked = []           # (member, aligned type) -> reads need float2(...) back-conversion
+        for i, (off, ty, nm, arr) in enumerate(placed):
             size, align = _msl_member_size(ty, arr)
             if off % align:
-                raise RuntimeError(f"{tag_for_log}: {nm}@{off} violates align {align}")
+                pty = None if arr else PACKED.get(ty)
+                if pty is None or off % 4:
+                    raise RuntimeError(f"{tag_for_log}: {nm}@{off} violates align {align}")
+                size, align = TYPE_INFO[pty]        # same bytes, align 4 -> offset expressible
+                repacked.append((nm, ty))
+                ty = pty
+                placed[i] = (off, ty, nm, arr)      # emit body reads `placed`
             spans.append((off, off + size, ty, nm, arr))
         for a, b in zip(spans, spans[1:]):
             if a[1] > b[0]:
@@ -237,6 +262,13 @@ def relayout_cb_structs(msl, offsets_by_slot, tag_for_log):
             cur = off + _msl_member_size(ty, arr)[0]
         body = "\n" + "\n".join(lines) + "\n"
         msl = msl.replace(sm.group(0), sm.group(1) + body + sm.group(4), 1)
+        # packed_* members are storage-only: convert reads back to the aligned vector type so
+        # every downstream use (swizzles, arithmetic) stays exactly what HLSLcc generated.
+        # `inst.` anchors the match, so the struct declaration itself is never rewritten.
+        for nm, aty in repacked:
+            msl = re.sub(r"\b" + re.escape(inst) + r"\s*\.\s*" + re.escape(nm) + r"\b",
+                         f"{aty}({inst}.{nm})", msl)
+            PACKED_HITS.add(f"{tag_for_log}:{inst}.{nm}@{aty}")
     return msl
 
 
@@ -389,6 +421,11 @@ def main():
             with open(dst_path, "wb") as fh:
                 fh.write(data)
             print(f"wrote {applied} shader(s) into {dst_path}")
+    if PACKED_HITS:
+        print(f"\npacked_* re-layout used for {len(PACKED_HITS)} member(s) "
+              f"(D3D-packed vectors at MSL-unalignable offsets):")
+        for h in sorted(PACKED_HITS):
+            print(f"  {h}")
     print(f"\n{done} shader(s) re-wrapped, {failed} failed"
           + (" [dry-run]" if args.dry_run else ""))
     sys.exit(1 if failed else 0)

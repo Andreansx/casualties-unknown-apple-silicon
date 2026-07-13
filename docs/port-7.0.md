@@ -1,12 +1,28 @@
 # Porting the 7.0 Steam demo (from the working 5.1 native port)
 
-**Status: triage DONE (2026-07-13), build NOT started.** Everything below is verified fact,
-not plan. Read `ROADMAP.md` "Native runtime fixes" + `tools/rewrap/README.md` first — same
-machinery, same traps.
+## ✅ BUILT — 65/65 shaders Metal, awaiting the one check only a human can do
 
-**Bottom line: 7.0 is a RE-RUN of the existing pipeline, not a rebuild.** The engine version,
-scripting backend and stock-shader set are unchanged. The only genuine engineering is two
-post-fx shaders (see §4).
+**Status (2026-07-13, overnight):** the port is **built, signed and verified headlessly**:
+
+    ~/Applications/Casualties.Unknown.Demo.v7.0.macOS.arm64.Metal.Native.app
+
+- **65/65 shaders carry Metal** (`verify_metal.py`) — 40 stock transplanted, 25 custom converted.
+- **The hand-authored shader tail is GONE (4 → 0).** `packed_float2` closed it — see §4.
+- Ran **196,530 frames in `-batchmode -nographics`** with **zero managed exceptions**: Mono, the
+  swapped BCL and the new Discord `RPCManager` are all healthy on ARM64.
+- Rebuilt from scratch **twice** by `tools/port.sh` (one command, reproducible).
+
+**NOT yet done — needs a human at an unlocked Mac with a display:** actually looking at it.
+A Unity player cannot come up behind the lock screen, so the boot check, the visual QA of the
+5 new shaders + the 2 rebuilt post-fx, and any `powermetrics` numbers are all still open.
+
+```bash
+tools/run-native.sh ~/Applications/Casualties.Unknown.Demo.v7.0.macOS.arm64.Metal.Native.app
+```
+
+**Bottom line: 7.0 was a RE-RUN of the existing pipeline, not a rebuild.** Engine version,
+scripting backend and stock-shader set unchanged. The only real engineering was two post-fx
+shaders (§4) — and that work retires the hand-authored path permanently.
 
 ---
 
@@ -104,41 +120,98 @@ So the hand-authored tail **shrinks from 4 to 2**. Do NOT reuse the old hand MSL
 
 ---
 
-## 4. THE ONLY REAL ENGINEERING: kill the 4-mod-8 misalignment in v2
+## 4. ✅ SOLVED: the 4-mod-8 misalignment — the hand-authored tail is retired (4 → 0)
 
 `DamageScreen._Pos` sits at byte 20 and `ScreenPass._PlayerPos` at byte 148. Both are `float2`,
-both offsets are ≡ 4 (mod 8), and MSL cannot align a `float2` member to a 4-mod-8 offset — this
-is the exact reason those shaders stayed hand-authored in 5.1.
+both offsets are ≡ 4 (mod 8), and MSL cannot align a `float2` member to a 4-mod-8 offset. That
+single constraint is the *entire* reason four shaders stayed hand-authored through the 5.1 port.
 
-**Fix (recommended over re-doing hand recovery): emit misaligned vectors as float arrays.**
-`float _PlayerPos[2]` has **alignment 4**, so it legally sits at offset 148 and occupies
-148..155 (inside one float4 row → matches D3D packing). Then rewrite the generated MSL's
-references:
+**The fix is one MSL type: `packed_float2`.** D3D packs a vector at any 4-byte offset that
+doesn't straddle a 16-byte row, so `@20` and `@148` are perfectly legal there. MSL's
+`packed_floatN` is exactly the storage-only counterpart — **size 8, alignment 4**, byte-identical
+layout — so it expresses the offset natively. Reads are converted back to the aligned type so
+every downstream use (swizzles, arithmetic) is unchanged from what HLSLcc generated:
 
 ```
-FGlobals._PlayerPos   ->   float2(FGlobals._PlayerPos[0], FGlobals._PlayerPos[1])
+constant UnityPerMaterial& { ... packed_float2 _PlayerPos; ... }   // sits legally at 148
+FGlobals._PlayerPos   ->   float2(FGlobals._PlayerPos)             // reads unchanged
 ```
 
-Trailing swizzles still work (`float2(...).x` is valid). Implement in the struct re-layout step
-of `inject_custom_metal2.py` (the code that currently raises `violates align N`), generalise to
-any `floatN` at a bad offset, and gate it behind `--compile-check`.
+Implemented in `inject_custom_metal2.py`: `PACKED` map + the `packed_*` branch in
+`relayout_cb_structs()` (exactly where it used to `raise ... violates align N`), plus a
+back-conversion `re.sub` anchored on `<cb>.` so the declaration itself is never rewritten.
+Members that were already aligned take the byte-identical code path they always did — the new
+logic lives *entirely* inside the branch that previously just threw.
 
-**Why this and not another hand re-wrap:** the hand path costs a full harvest-under-D3DMetal +
-manual MSL recovery **every single time the devs recompile a shader** — which they just did, in
-one point release. The array trick gets to **65/65 fully automatic** and makes the next port
-(8.0, and 1.0 release) a pure re-run. This is the single highest-leverage change left in the
-whole project.
+**Result: 25/25 custom shaders convert, 0 failed, `--compile-check` (a real `xcrun metal`
+compile) passes.** It also retroactively converts the 5.1 build's 20/20 — including the two that
+were hand-authored there — which is strong independent evidence the layout is right.
+
+**Why this mattered:** the hand path cost a full harvest-under-D3DMetal + manual MSL recovery
+**every time the devs recompile a shader** — which they just did, in a single point release
+(3 of the 4 changed). The port is now **65/65 fully automatic**, so 8.0 and the 1.0 release are
+pure re-runs of `tools/port.sh`.
+
+⚠️ The hand-authored MSL in `inject_metal.py` (`SHADERS = {68..71}`) is now **dead code for 7.0**
+and its 5.1 bytecode assumptions are stale. Do not resurrect it; `inject_custom_metal2.py`
+covers all 25.
 
 ---
 
-## 5. The build recipe (nothing here is invented — it is the 5.1 recipe with new paths)
+## 5. The build: ONE COMMAND (`tools/port.sh`)
+
+The four post-transplant fixes are no longer applied by hand — `tools/port.sh` is the whole
+recipe, end to end, and it self-verifies:
+
+```bash
+tools/port.sh --win ~/Games/CU_demo_7 \
+              --out ~/Applications/Casualties.Unknown.Demo.v7.0.macOS.arm64.Metal.Native.app
+```
+
+It does: transplant → BCL swap → dataPath symlinks → de-burst → bundle identity (+ keybinds
+migration) → ggm patches (Metal/vsync/retina) → shaders (stock + custom, compile-checked) →
+ad-hoc sign → headless verify. It refuses to build into iCloud, refuses on a Unity-version
+mismatch, and **fails loudly if 0 stock shaders transplant** (see the trap below).
+
+### TWO TRAPS THIS PORT HIT — both now guarded in port.sh
+
+**1. There are TWO donors and they are NOT interchangeable.**
+`EmptyMac.app` (in the repo) is the **player skeleton** — the native ARM64 UnityPlayer/Mono.
+`~/UnityProjects/EmptyMac/Build/Donor.app` is the **shader donor** — the `DonorSetup` build whose
+Always-Included-Shaders list forces all 40 stock shaders to compile to Metal. Point
+`transplant_stock.py` at the skeleton and it skips all 40 with `NOT IN DONOR`, transplants
+nothing, and you get a **signed, launchable app that renders pink** — no error anywhere. This
+happened on the first build here and was caught only by `verify_metal.py` (25/65). `port.sh` now
+takes `--shader-donor` (defaulting to `Donor.app`) and dies on `transplanted 0`.
+
+**2. The bundle identifier IS the save/keybinds directory.**
+macOS `persistentDataPath` = `~/Library/Application Support/<CFBundleIdentifier>`. The 5.1 port
+inherited the donor's id (`com.DefaultCompany.2DProject`), which is where the **RMB→LeftAlt
+trackpad fix in `keybinds.json`** lives. Giving the app a proper id moves that directory, the game
+regenerates DEFAULT binds, and right-click is unusable again — with no in-game rebinding UI to fix
+it. `port.sh` step 5 migrates `keybinds.json` across whenever it changes the id.
 
 ⚠️ Output to a **NEW bundle** so the working 5.1 port at `~/Applications/CU_metaltest.app`
-survives. ⚠️ Build outside iCloud (`~/Applications`, `~/Games`), then ad-hoc sign.
+survives. ⚠️ Build outside iCloud (`~/Applications`, `~/Games`) — iCloud's FinderInfo stamping
+breaks `codesign`; `port.sh` refuses.
 
-The four post-transplant fixes below are **still not folded into `transplant.sh`** (ROADMAP says
-so). **Fold them into a single `tools/port.sh` while doing this** — re-applying them by hand is
-where a port loses a day.
+### What it produced (verified headlessly)
+
+| check | result |
+|---|---|
+| shaders carrying Metal | **65/65** (`verify_metal.py`) |
+| stock transplanted | 40, 0 skipped |
+| custom converted | 25, 0 failed, `--compile-check` clean |
+| executable arch | `arm64` slice present (universal) |
+| codesign | `--verify --deep --strict` passes |
+| BCL | mscorlib/System/System.Core = **donor's**, not Windows |
+| game code | `Assembly-CSharp` = the **7.0** build's, byte-identical |
+| Windows native plugins | stripped (no `.dll`/`.bundle` in `Plugins`) |
+| `Contents/Lang`, `custommusic` | resolve |
+| Burst bundle | absent |
+| batchmode run | **196,530 frames, 0 managed exceptions** |
+
+### The old by-hand recipe (kept for reference / other games)
 
 ```bash
 WIN=~/Games/CU_demo_7
@@ -179,10 +252,6 @@ python3 tools/rewrap/patch_keybinds.py    # RMB->LeftAlt for trackpad; persisten
 `inject_custom_metal2.py` sources DXBC from the **untouched Windows build** (`--src-data`) and
 patches the **app's** Data (`--dst-data`) — never the other way round.
 
-Until §4 lands, `DamageScreen` + `ScreenPass` stay D3D11-only: the game **boots and plays**
-(63/65 shaders are Metal — the NullGfxDevice wall only triggers when the API is unsupported
-wholesale), but the damage vignette and that screen pass will render wrong/pink.
-
 ---
 
 ## 6. What needs a HUMAN (and what does not)
@@ -196,8 +265,28 @@ wholesale), but the damage vignette and that screen pass will render wrong/pink.
 screen. So: boot check, visual QA of the 5 new shaders + the 2 post-fx, and any `powermetrics`
 comparison against the 5.1 port / Path 1 all have to be done by you, awake.
 
-**Verification that CAN be done headless** (do this before handing back): all 65 shaders carry
-Metal subprograms in the output `.assets`; `globalgamemanagers` shows shaderPlatform 14;
-the `Lang`/`custommusic` symlinks resolve; `lib_burst_generated.bundle` is gone; the BCL
-assemblies match the donor's; `codesign --verify --deep --strict` passes; `lipo -archs` on the
-bundle executable reports arm64.
+**Verification that CAN be done headless** — all of this is automated in `port.sh`'s final step
+plus `tools/rewrap/verify_metal.py`, and all of it passed: every shader carries Metal
+(platform 14); `Lang`/`custommusic` symlinks resolve; no Burst bundle; BCL matches the donor;
+`codesign --verify --deep --strict` passes; `lipo -archs` reports an arm64 slice.
+
+Plus the strongest headless test available: **`-batchmode -nographics`**. It has no GPU, so every
+shader logs *"not supported on this GPU"* — **ignore that, it is an artifact of `-nographics`,
+not a port defect** — but it fully exercises Mono, the BCL and game code. 196,530 frames, zero
+managed exceptions, no `DllNotFoundException` from Discord, and crucially no
+`EntryPointNotFoundException` (the kernel32 signature of the BCL bug that caused the
+"Instantiating Chunks" hang).
+
+### The open QA list for the morning
+
+1. Does it boot and render? `tools/run-native.sh <app>`
+2. The 5 NEW shaders, never seen on Metal: `CrystalShimmer`, `HumanShader`, `MagmaShader`,
+   `ObserverShader`, `ScreenSpaceDistortion`.
+3. The 2 REBUILT post-fx, first ever machine-converted: `DamageScreen` (damage vignette — take a
+   hit) and `ScreenPass`. Both use `packed_float2` for a player-position uniform, so the failure
+   mode to watch for is an effect **mispositioned** relative to the player rather than absent.
+4. `AberrationShader` + `BonusPass` (converted, previously hand-authored).
+5. Right-click = **hold Option/LeftAlt** (`iteminteract`), migrated to the new bundle id.
+6. Discord Rich Presence is expected NOT to work (native plugin stripped) — harmless.
+7. Power: `powermetrics` vs the 5.1 native port. Process is now named **`CasualtiesUnknown`**,
+   no longer `EmptyMac`.
