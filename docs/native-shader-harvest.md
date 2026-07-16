@@ -1,5 +1,13 @@
 # Path 3-lite - harvesting D3DMetal's generated Metal shaders
 
+> **⚠️ Historical (2026-07-12).** This documents the *proof-of-concept* front-end for the 4 custom
+> post-fx: harvesting D3DMetal's runtime Metal to learn the binding model. It did its job (it proved
+> the AIR can't be binary-injected and taught the ABI), but the **production** path for all custom
+> graphs is now offline Unity-HLSLcc (`tools/rewrap/inject_custom_metal2.py`), and the hand-authored
+> tail it was built for is **retired** (see [`port-7.0.md`](port-7.0.md) §4). Also note the
+> "payoff vs Path 1: might save a fraction of a watt" guess at the bottom was **wrong** - going
+> native measured **47% lower gameplay power** (~2.2 W less). Kept for the method and the dead ends.
+
 > Goal: reach a **100% native** render (ROADMAP Path 3) for the 4 custom Shader Graphs
 > (`BonusPass`, `DamageScreen`, `ScreenPass`, `AberrationShader`) **without** hand-transpiling
 > their DXBC - by capturing the Metal shaders that **D3DMetal already generates at runtime**

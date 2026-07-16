@@ -1,3 +1,15 @@
+# tools/
+
+The native port builds in one command with **[`port.sh`](port.sh)** (`--win <WindowsGameDir>
+--out <CU.app>`): it runs `transplant.sh`, the runtime fixes, the shader passes
+([`rewrap/`](rewrap/): `transplant_stock.py` for the 40 stock shaders, `inject_custom_metal2.py`
+for the 25 custom graphs, the `patch_ggm_*.py` passes, `verify_metal.py`), ad-hoc signs, and
+verifies headlessly. Power comparisons use **[`powermeasure.sh`](powermeasure.sh)**; the launchers
+are `run-native.sh` (native `.app`) and `run-d3dmetal.sh` (Path 1). The rest of this file covers the
+one-off RE tooling.
+
+---
+
 # RE tooling (idalib)
 
 Headless IDA Pro scripts used to characterize the shipped native Burst plugin

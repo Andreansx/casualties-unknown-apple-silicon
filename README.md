@@ -14,20 +14,28 @@ without the fans spinning up.
 >
 > **2. The impressive one - a FULLY NATIVE Apple Silicon build.** No Wine, no Rosetta, no D3D:
 > a native ARM64 Unity player running the game's original managed code and assets, rendering
-> **100% on Metal** - because we **converted all 60 of the game's D3D11-only shaders to Metal
-> offline**, including the 20 custom Shader Graphs whose source does not exist anywhere in the
+> **100% on Metal** - because we **converted all 65 of the game's D3D11-only shaders to Metal
+> offline**, including the 25 custom Shader Graphs whose source does not exist anywhere in the
 > build. This was supposed to be impossible (see [The shader wall](#the-shader-wall-and-how-we-broke-through-it));
-> the game is now **playable end-to-end natively**, at **120 FPS with a 3.2 ms GPU frame time**
-> (i.e. *faster* than the translated build's 4.06 ms).
+> the game is now **playable end-to-end natively**, and in active gameplay it draws **47% less
+> power than the translated Path-1 build** (winning on *both* CPU and GPU). The entire native
+> build is now reproducible in **one command** - [`tools/port.sh`](tools/port.sh).
 > → [The native port](#the-native-port-path-23--the-impressive-one)
+
+> **Latest milestone (2026-07):** the current target is the **7.0 Steam demo** (65 shaders), and
+> it is fully ported - 65/65 Metal, one-command build, gameplay power re-measured. The old
+> "hand-authored shader tail" is **retired**: all 25 custom graphs now convert automatically. See
+> [`docs/port-7.0.md`](docs/port-7.0.md) for the 7.0 write-up; 8.0 / the full release are expected
+> to be pure re-runs of `tools/port.sh`.
 >
 > The whole stack is **free**: Rosetta 2 (built into macOS) + the Gcenx `game-porting-toolkit`
 > cask (which bundles Apple's D3DMetal) + Unity 2022.3.62f3 for the native path. No CrossOver,
 > no paid tools, no Apple-developer download.
 
 **Which should you use?** Path 1 if you just want to play - it is one command and always
-renders correctly. The native port is the deeper, more interesting result and is now fully
-playable, but rebuilding it is a multi-step pipeline that needs a Unity install.
+renders correctly. The native port is the deeper, more interesting result, is now fully playable,
+and *also* rebuilds in one command ([`tools/port.sh`](tools/port.sh)) - the only multi-step,
+Unity-requiring part is a **one-time** build of the shader donor project.
 
 ---
 
@@ -102,8 +110,8 @@ the whole difference, and it's why this sits at **~2.5 W / 120 FPS** on an M2 Ma
 
 ## Why
 
-- The game ships **Windows 10 / x86-64 only**. No Windows devices in the household.
-- The MacBook Pro is **ARM64**, so the only turn-key option is **UTM** - but Windows 10 x64 needs
+- The game ships **Windows 10 / x86-64 only** - a wall if the only hardware you have is Apple Silicon.
+- An Apple-Silicon Mac is **ARM64**, so the only turn-key option is **UTM** - but Windows 10 x64 needs
   *full-system* emulation (QEMU TCG: whole CPU + MMU + devices + Win kernel + DirectX all
   translated, guest GPU software-rendered). Extremely power-hungry and thermally throttled -
   useless on battery.
@@ -221,17 +229,17 @@ logs `NullGfxDevice` and dies in the draw path. Root cause, found by diffing the
 `globalgamemanagers` against an empty Mac build's with UnityPy:
 
 > `GraphicsSettings.m_ShaderDefinesPerShaderCompiler.shaderPlatform` = **4 (D3D11)** in the game,
-> **14 (Metal)** in the Mac build. **Every one of the 60 shaders in the build is D3D11-only
+> **14 (Metal)** in the Mac build. **Every one of the 65 shaders in the build is D3D11-only
 > bytecode. There are no Metal variants - not even engine blit shaders.**
 
 `-force-metal` is a real flag and does force the Metal device, but then:
 `Forced GfxDevice 'Metal' … shaders will not be available` → `InitializeEngineGraphics failed`.
 
-And the nasty part: **20 of those shaders are the game's own custom Shader Graphs** (the 4 post-fx
-`BonusPass` / `DamageScreen` / `ScreenPass` / `AberrationShader`, plus 16 gameplay graphs like
-`Limb`, `WallHole`, `RadBackground`, `HoverShader`). Unity ships **no source** for them in a build
-- only compiled DXBC + ShaderLab metadata. Stock URP shaders you can re-obtain from a Mac build.
-Custom graphs, conventional wisdom says, you cannot rebuild without the original project.
+And the nasty part: **25 of those shaders are the game's own custom Shader Graphs** - the 4 post-fx
+(`BonusPass` / `DamageScreen` / `ScreenPass` / `AberrationShader`) plus 21 gameplay graphs like
+`Limb`, `WallHole`, `RadBackground`, `HoverShader`, `HumanShader`. Unity ships **no source** for
+them in a build - only compiled DXBC + ShaderLab metadata. Stock URP shaders you can re-obtain from
+a Mac build. Custom graphs, conventional wisdom says, you cannot rebuild without the original project.
 
 **That conclusion was wrong.** You don't need the source - you need the *bytecode*, and DXBC is
 fully sufficient to reconstruct Metal. Two buckets:
@@ -242,15 +250,21 @@ match) with all 40 stock shaders in *Always Included Shaders* so every variant c
 each shader **wholesale** into the game data **by name** (built players keep no GUIDs) -
 [`tools/rewrap/transplant_stock.py`](tools/rewrap/transplant_stock.py).
 
-### Bucket B - the 20 custom Shader Graphs: offline DXBC → Metal
-This is the real work. For the **16 gameplay graphs** we compile the game's own DXBC to Metal
-**offline with Unity's own HLSLcc** ([`tools/hlslcc/build.sh`](tools/hlslcc/)) - the very
-translator the Unity editor uses for Metal, so its output natively speaks Unity's `xlatMtlMain`
-shader ABI. Every keyword variant of every shader (~500 programs) is translated and compile-checked
-against the real Metal toolchain by
-[`tools/rewrap/inject_custom_metal2.py`](tools/rewrap/inject_custom_metal2.py). The **4 post-fx**
-(`BonusPass`/`DamageScreen`/`ScreenPass`/`AberrationShader`) are instead hand-recovered MSL,
-injected by [`tools/rewrap/inject_metal.py`](tools/rewrap/inject_metal.py) - see below.
+### Bucket B - the 25 custom Shader Graphs: offline DXBC → Metal
+This is the real work. We compile the game's own DXBC to Metal **offline with Unity's own HLSLcc**
+([`tools/hlslcc/build.sh`](tools/hlslcc/)) - the very translator the Unity editor uses for Metal,
+so its output natively speaks Unity's `xlatMtlMain` shader ABI. Every keyword variant of every
+shader (~500+ programs) is translated and compile-checked against the real Metal toolchain by
+[`tools/rewrap/inject_custom_metal2.py`](tools/rewrap/inject_custom_metal2.py).
+
+**All 25 - including the 4 post-fx - now convert automatically.** Through the 5.1 port those four
+(`BonusPass`/`DamageScreen`/`ScreenPass`/`AberrationShader`) had to be **hand-recovered MSL**,
+because each carries a `float2` uniform at a 4-mod-8 byte offset (`_PlayerPos@148`) that MSL cannot
+align to a plain `float2` member. The 7.0 port **retired that hand-authored tail entirely**: the
+offset is expressible as an MSL **`packed_float2`** (size 8, align 4 - byte-identical to D3D's
+packing), so `inject_custom_metal2.py` handles it like any other. The old hand-recovery path
+([`tools/rewrap/inject_metal.py`](tools/rewrap/inject_metal.py)) is kept only as historical
+reference - see [`docs/port-7.0.md`](docs/port-7.0.md) §4.
 
 The catch: Unity **strips the RDEF reflection chunk** from shipped DXBC, and HLSLcc needs it. So
 we **synthesize RDEF back** from the `SHDR` `dcl_*` declarations plus Unity's own serialized
@@ -288,7 +302,7 @@ dumps vertex descriptors, and - critically - tracks `MTLParallelRenderCommandEnc
 (Unity records the main pass through one; without hooking it, every bind and draw is invisible and
 you chase a phantom "the draws never happen" theory).
 
-**Result: all 60/60 shaders are Metal. The native build renders the game.**
+**Result: all 65/65 shaders are Metal. The native build renders the game.**
 
 ## The 37 W mystery (a good one)
 
@@ -333,16 +347,22 @@ Two things worth knowing, neither of which is a port bug:
   *and* slide the cursor with those same fingers.
 
 The game turns out to be on the **legacy Input Manager** (no `Unity.InputSystem.dll`), reading a
-**data-driven bind table**: `Input.GetKey*(KeyBinds.GetBind("name"))`, backed by
-`persistentDataPath/keybinds.json` whose values are `KeyCode` enum names. Right-click is the
-**`iteminteract`** bind. There's no in-game rebinding UI - `PreRunScript::{OpenBindsFile,
-ReloadBinds,ResetBinds}` (edit the JSON, hit reload) **is** the developer's intended rebinding UX.
+**data-driven bind table**: `Input.GetKey*(KeyBinds.GetBind("name"))`. Right-click is the
+**`iteminteract`** bind.
+
+**Where the binds live changed between demo versions** - watch for this on any future port:
+- **5.1:** a dedicated `persistentDataPath/keybinds.json` (`KeyCode` enum *names*), and no in-game
+  rebinding UI (`PreRunScript::{OpenBindsFile,ReloadBinds,ResetBinds}` was the intended UX).
+- **7.0:** folded into the Settings system - `persistentDataPath/settings.json`, a flat list where a
+  keybind's value is the KeyCode's **integer** (`Mouse1 = 324`, `LeftAlt = 308`). There is **no**
+  `keybinds.json` anymore, *and* 7.0 adds a real in-game rebinding UI (Settings → Controls).
 
 So: **rebind it to a held keyboard key.** [`tools/rewrap/patch_keybinds.py`](tools/rewrap/patch_keybinds.py)
-does it (`iteminteract` → `LeftAlt`, i.e. hold **Option** to interact/drag; `--restore` to undo).
-Note the bind file lives under the **donor's** bundle id
-(`~/Library/Application Support/com.DefaultCompany.2DProject/`), since the transplant inherits the
-donor `.app`'s `Info.plist`; and binds are cached in a static, so restart the game after editing.
+does it (`iteminteract` → `LeftAlt`, i.e. hold **Option** to interact/drag; `--restore` to undo); it
+auto-detects the 7.0 `settings.json` vs the 5.1 `keybinds.json` and speaks KeyCode names either way.
+The bind file lives under the app's **`CFBundleIdentifier`** (`persistentDataPath` =
+`~/Library/Application Support/<id>`); `port.sh` migrates it whenever it changes the id. The game
+rewrites `settings.json` on exit, so **quit it before editing** (the tool refuses if it's running).
 
 ## Running the native port (with the Metal HUD)
 
@@ -367,36 +387,55 @@ Want the HUD on Finder/Dock launches too? `./tools/run-native.sh --install-hud-d
 per-app `MetalForceHudEnabled` default on the bundle ID (undo: `--uninstall-hud-default`).
 
 Same overlay as Path 1 - but now it's reporting on **our** Metal frames, not D3DMetal's translated
-ones, which is exactly how the [head-to-head numbers](#head-to-head-native-vs-d3dmetal-same-scene-same-method-)
+ones, which is exactly how the [head-to-head numbers](#head-to-head-native-vs-d3dmetal---native-wins-gameplay-by-47-)
 above got sanity-checked.
 
 ---
 
 ## Rebuilding the native port yourself
 
-Not a one-command flow yet - it needs Unity and a few passes. Order:
+**It is one command** - [`tools/port.sh`](tools/port.sh) is the whole recipe, end to end, and it
+self-verifies:
 
-1. **Unity 2022.3.62f3** + Mac Build Support (Mono). Build the **donor**: an empty macOS/Apple-Silicon
-   project, plus the URP/TMP donor scene from [`tools/donor/`](tools/donor/) (`DonorSetup.cs`) with
-   all 40 stock shaders in *Always Included Shaders*.
-2. `tools/transplant.sh --win <WindowsGameDir> --mac-app <EmptyMac.app> --out <CU.app>` - grafts the
-   payload, drops the x86 plugins, ad-hoc signs.
-3. `tools/rewrap/transplant_stock.py` - Bucket A, the 40 stock shaders from the donor.
-4. `tools/hlslcc/build.sh` (once), then `tools/rewrap/inject_custom_metal2.py --src-data <WindowsBuild>/CasualtiesUnknown_Data --dst-data <CU.app>/Contents/Resources/Data --compile-check` - Bucket B, the 16 custom gameplay graphs. Then `tools/rewrap/inject_metal.py` for the 4 hand-recovered post-fx.
-5. `tools/rewrap/patch_ggm_metal.py` (shaderPlatform 4→14, `m_GraphicsAPIs` 2→16) and
-   `tools/rewrap/patch_ggm_vsync.py` (the 37 W fix).
-6. Apply the [runtime fixes](#runtime-fixes-needed-to-make-it-actually-playable) (BCL swap, `Lang`/
-   `custommusic` symlinks, remove `lib_burst_generated.bundle`), then
-   `codesign --force --deep -s - <CU.app>`.
+```bash
+tools/port.sh --win ~/Games/CU_demo_7 \
+              --out ~/Applications/Casualties.Unknown.Demo.v7.0.macOS.arm64.Metal.Native.app
+```
 
-> **Known rough edges.** The runtime fixes in step 6 are **not yet folded into `transplant.sh`** -
-> apply them by hand on a rebuild. The 4 hand-recovered post-fx stay hand-authored on purpose
-> (their `float2 _PlayerPos@148` sits at a 4-mod-8 offset, unrepresentable as an MSL `float2`
-> member). `ScreenPass` merges one blur tap (12/13 samples) - a minor fidelity gap.
+It does: transplant → BCL swap → `dataPath` symlinks → de-burst → bundle identity (version stamp +
+keybinds migration) → `globalgamemanagers` patches (Metal / vsync / retina / `runInBackground`) →
+shaders (40 stock transplanted + 25 custom converted, compile-checked) → ad-hoc sign → headless
+verify. It refuses to build into iCloud, refuses on a Unity-version mismatch, and fails loudly if 0
+stock shaders transplant.
+
+The **only** prerequisite that needs Unity is a **one-time** donor build:
+
+- **Unity 2022.3.62f3** + Mac Build Support (Mono). Build **two** things (see the traps below - they
+  are *not* interchangeable): the **player skeleton** (an empty macOS/Apple-Silicon project →
+  `EmptyMac.app`) and the **shader donor** (the same project plus the URP/TMP scene from
+  [`tools/donor/`](tools/donor/) (`DonorSetup.cs`) with all 40 stock shaders in *Always Included
+  Shaders* → `Donor.app`).
+
+Under the hood `port.sh` runs, in order: `transplant.sh` → the [runtime fixes](#runtime-fixes-needed-to-make-it-actually-playable)
+(BCL swap, `Lang`/`custommusic` symlinks, remove `lib_burst_generated.bundle`) → `transplant_stock.py`
+(Bucket A) → `inject_custom_metal2.py` (Bucket B, all 25) → `patch_ggm_metal.py` (shaderPlatform
+4→14, `m_GraphicsAPIs` 2→16) → `patch_ggm_vsync.py` (the 37 W fix) → `patch_ggm_bool.py runInBackground off`
+(the screen-lock fix) → `codesign`. The full by-hand sequence is preserved in
+[`docs/port-7.0.md`](docs/port-7.0.md) §5 for reference or for porting other games.
+
+> **Two traps `port.sh` now guards against** (both cost a build here):
+> - **There are TWO donors.** The player skeleton (`EmptyMac.app`) and the shader donor (`Donor.app`)
+>   are different builds. Point the stock-shader transplant at the skeleton and it silently transplants
+>   nothing - you get a signed, launchable app that **renders pink**, with no error. `port.sh` takes
+>   `--shader-donor` and dies on "transplanted 0".
+> - **The bundle identifier IS the save/keybinds directory** (`persistentDataPath` =
+>   `~/Library/Application Support/<CFBundleIdentifier>`). Change the id and the game regenerates
+>   default binds - the RMB→Option trackpad fix vanishes. `port.sh` migrates the bind file when it
+>   changes the id.
 >
 > **Environment gotcha:** this repo lives in iCloud-synced `~/Documents`, and the iCloud file
 > provider re-stamps `com.apple.FinderInfo`, which **breaks `codesign`**. Build and keep the
-> runnable `.app` **outside** iCloud (e.g. `~/Applications`).
+> runnable `.app` **outside** iCloud (e.g. `~/Applications`); `port.sh` refuses to build into iCloud.
 
 ---
 
@@ -443,30 +482,33 @@ NEON `lib_burst_generated.dylib` is **regenerable**: these are stock packages, s
 - [x] `globalgamemanagers` portability - resolved: graphics/shader platform is baked in
       (`shaderPlatform 4 = D3D11`). Not a tunable, but it **is** surgically patchable
       (`patch_ggm_metal.py`).
-- [x] ~~Custom shaders → unrecoverable, native path blocked~~ - **WRONG, and disproven.** All 20
-      custom Shader Graphs were reconstructed from their shipped DXBC via Unity's own HLSLcc.
-      **All 60/60 shaders now have Metal variants; the native build renders 100%.**
+- [x] ~~Custom shaders → unrecoverable, native path blocked~~ - **WRONG, and disproven.** All 25
+      custom Shader Graphs were reconstructed from their shipped DXBC via Unity's own HLSLcc, and the
+      4-post-fx hand-authored tail is now **retired** (`packed_float2`). **All 65/65 shaders have
+      Metal variants; the native build renders 100%.**
 - [x] ~~Burst-heavy code paths~~ - stock Unity 2D-animation/SpriteShape/URP jobs; managed fallback
       confirmed working in the real native build.
 - [x] Native GPU power - 37 W at menu traced to `vSyncCount=0` quality levels; fixed, now ~1.7 W.
 - [x] Input - **legacy Input Manager** (no `Unity.InputSystem.dll`), fully cross-platform. Binds are
-      data-driven JSON; RMB rebound to Option for trackpad play.
+      data-driven JSON; RMB rebound to Option for trackpad play (bind store = `settings.json` on 7.0).
 - [x] Save location - `Application.persistentDataPath`. Under Wine:
-      `%USERPROFILE%\AppData\LocalLow\Orsoniks\CasualtiesUnknown\`. Native: note the transplant
-      inherits the **donor's** bundle id, so it lands in
-      `~/Library/Application Support/com.DefaultCompany.2DProject/`.
-- [x] **Head-to-head power measurement**, native vs GPTK - done: same scene (menu), same
-      resolution, baseline-subtracted. **Native is 27% cheaper** (1622 vs 2222 mW marginal),
-      entirely from removing Rosetta (CPU −70%).
-- [ ] **Native GPU overdraw.** Native uses 2.5× the GPU power of D3DMetal for the same frame, and
-      the native menu costs MORE GPU than native gameplay (1456 mW / 65% residency vs 1190 mW /
-      39%). Something is doing redundant GPU work on the native path. Profile with
-      `tools/powerprof/` (same tool that caught the 37 W vsync bug). Fixing it should widen
-      native's win well beyond 27%.
+      `%USERPROFILE%\AppData\LocalLow\Orsoniks\CasualtiesUnknown\`. Native: it lands under the app's
+      `CFBundleIdentifier` in `~/Library/Application Support/<id>`.
+- [x] **Head-to-head power measurement**, native vs GPTK - done and **re-measured on 7.0 in
+      gameplay** (`tools/powermeasure.sh`, 2026-07-14): **native is 47% cheaper in active gameplay**
+      (2540 vs 4788 mW marginal), winning on both CPU (−59%, no Rosetta) and GPU (−14%, offline
+      shaders). ⚠️ The earlier "27% (menu)" number is superseded - it was a menu measurement.
+- [ ] **Native menu wastes GPU** (scene-specific; does **not** affect gameplay). On the *main menu*
+      only, native GPU (1505 mW) exceeds its own gameplay GPU (1106 mW) and ~3× D3DMetal's menu -
+      redundant render work (extra passes? post-fx over the menu?). It collapses the menu lead to
+      −4%. Profile with `tools/powerprof/` (the tool that caught the 37 W vsync bug).
+      ⚠️ The older "native uses 2.5× the GPU for the same frame" framing was a **menu artifact and is
+      retracted** - in gameplay native's GPU is *lower* than D3DMetal's.
 - [ ] **DRM check on the retail build.** Demo scan is clean: no Steamworks/license/activation/
       tamper/checksum strings and no network endpoints in `Assembly-CSharp.dll` (the only
       `UnityWebRequest` use is `UnityWebRequestMultimedia` for the local `custommusic/` feature).
-- [ ] Visual QA sweep of the converted effects across all gameplay states.
+- [ ] Visual QA sweep of the 7.0 converted effects (esp. the 5 new graphs + the 2 rebuilt post-fx)
+      across all gameplay states - the one step that still needs a human at an unlocked Mac.
 
 ## Distribution & legal (personal-use port)
 
@@ -487,31 +529,37 @@ Favorable footing (EU / Poland): Software Directive 2009/24/EC Art. 5(1) (lawful
 for intended use) and Art. 6 (RE for interoperability). US interop precedent: *Sony v. Connectix*,
 *Sega v. Accolade* (RE a platform to run software on other hardware).
 
-**Best practical move:** ask the developer (Orsoniks) - a solo indie dev often welcomes a community
-Apple-Silicon path, or may ship an official Mac build.
+**The cleanest outcome would be an official Mac build.** Orsoniks is a solo indie dev, and solo devs
+often welcome a community Apple-Silicon path - so if you want this upstreamed, reaching out to them
+is worth a shot.
 
 ## Repository map
 
 | Path | What |
 |---|---|
+| `tools/port.sh` | **The native build, one command** - transplant → runtime fixes → shaders → ggm patches → sign → headless verify. `--win <WindowsGameDir> --out <CU.app>`. |
 | `tools/run-d3dmetal.sh` | **Path 1 launcher** - the one command that plays the game. `HUD=1` for the Metal overlay. |
 | `tools/run-native.sh` | **Native launcher** - runs the ARM64/Metal `.app` with the same Metal HUD (`HUD=1` by default), plus `WINDOWED=1` / `PROF=1`. |
-| `tools/transplant.sh` | Graft the Windows payload onto a native ARM64 Unity player. |
+| `tools/transplant.sh` | Graft the Windows payload onto a native ARM64 Unity player (called by `port.sh`). |
+| `tools/powermeasure.sh` | Baseline-subtracted CPU/GPU power for one scene → CSV; `--report` for the native-vs-D3DMetal table. |
 | `tools/donor/` | Unity editor script to build the version-matched Mac shader donor. |
-| `tools/rewrap/` | The shader pipeline: `transplant_stock.py` (40 stock), `inject_custom_metal2.py` (20 custom, via HLSLcc), `patch_ggm_*.py` (Metal / vsync / retina), `patch_keybinds.py`. |
+| `tools/rewrap/` | The shader pipeline: `transplant_stock.py` (40 stock), `inject_custom_metal2.py` (25 custom, via HLSLcc), `patch_ggm_*.py` (Metal / vsync / retina / bool), `patch_keybinds.py`, `verify_metal.py`. |
 | `tools/hlslcc/` | Builds Unity's own HLSLcc DXBC→MSL translator + CLI. |
 | `tools/harvest/` | Path 3-lite: `DYLD_INSERT_LIBRARIES` shim that dumps D3DMetal's runtime metallibs. |
 | `tools/powerprof/` | Metal frame profiler shim (render passes / draws / GPU-ms as JSONL) - cracked both the 37 W bug and the invisible-player bug. |
-| `docs/native-shader-harvest.md` | Full write-up of the shader recovery. |
+| `docs/port-7.0.md` | The 7.0 Steam-demo port: one-command build, retired shader tail, traps, gameplay findings. |
+| `docs/native-shader-harvest.md` | Full write-up of the shader recovery (Path 3-lite; historical). |
 | `ROADMAP.md` | Living tracker: every path, task, and dead end, in detail. |
 
-- **The game binaries are not committed** (copyright + ~300 MB). Place the demo locally in
-  `CasualtiesUnknownDemo/` - `.gitignore`d. Built `.app`s are ignored too.
+- **No game binaries are committed here** (copyright + ~300 MB). You bring your own legally-owned
+  copy: point the scripts at it, or drop it in a local `CasualtiesUnknownDemo/` (`.gitignore`d).
+  Built `.app`s are ignored too.
 - Dead ends worth not repeating: **Whisky** (its Wine runtime hosting 404s) and **DXVK + MoltenVK**
   (loads, but crashes in `D3D11CoreCreateDevice`). Apple's raw GPTK dmg download was also broken.
   The working combination is the **Gcenx cask specifically, because it bundles D3DMetal**.
 
-## Environment
+## Reference environment
 
+Everything here was built and measured on:
 - MacBook Pro **M2 Max**, macOS (Apple Silicon / ARM64).
 - Unity toolchain for the native path: **2022.3.62f3** + Mac Build Support (Mono).

@@ -2,20 +2,28 @@
 
 Living tracker of the three viable paths. Read this **and** `README.md` for full context.
 
-**Current status:** ✅ **BOTH paths work.**
+**Current status (2026-07):** ✅ **BOTH paths work, and the 7.0 Steam demo is fully ported.**
 - **Path 1** - the unmodified Windows build renders on Apple Silicon via **Gcenx GPTK's bundled
   Apple D3DMetal** (D3D11→Metal at runtime). Free stack, no CrossOver, no Apple download. Real
-  D3D11 device (not NullGfxDevice); shader wall *bypassed*. ~2.5 W / 120 fps / 4.06 ms.
-- **Paths 2+3** - ✅ **the shader wall was BROKEN, not bypassed.** All **60/60** shaders now have
-  Metal variants (40 stock via donor transplant; 16 custom graphs via offline Unity-HLSLcc
-  DXBC→MSL; 4 post-fx hand-recovered). The **fully native ARM64 + Metal build is PLAYABLE**
-  end-to-end - no Wine, no Rosetta, no D3D. 120 fps @ **3.2 ms** GPU frame (beats Path 1's 4.06),
-  GPU ~1.7 W at menu after the vsync fix. Remaining: broad visual QA + a head-to-head whole-package
-  power measurement vs Path 1.
+  D3D11 device (not NullGfxDevice); shader wall *bypassed*. ~2.5 W total / 120 fps.
+- **Paths 2+3** - ✅ **the shader wall was BROKEN, not bypassed.** All **65/65** shaders now carry
+  Metal (40 stock via donor transplant; **25 custom graphs via offline Unity-HLSLcc DXBC→MSL** -
+  the 4 post-fx hand-authored tail is **RETIRED**, `packed_float2` closed it). The **fully native
+  ARM64 + Metal build is PLAYABLE** end-to-end - no Wine, no Rosetta, no D3D - and rebuilds in
+  **one command** (`tools/port.sh`). **Head-to-head power is settled: native draws 47% less in
+  active gameplay** (2540 vs 4788 mW marginal), winning on both CPU and GPU.
+- **7.0 demo (current target):** built, signed, 65/65 Metal, 196k frames headless with 0 managed
+  exceptions. Full write-up → [`docs/port-7.0.md`](docs/port-7.0.md). **8.0 / the full release are
+  expected to be pure re-runs of `tools/port.sh`.**
+
+> **What's actually left:** (1) a human visual-QA sweep of the 7.0 effects (needs an unlocked Mac
+> with a display - a Unity player won't come up behind the lock screen); (2) the menu-only GPU-waste
+> bug (scene-specific, does not affect gameplay). Everything else is done.
 
 **Hard constraint:** the tool must rely on **free resources only** (it is meant to be a
-publishable free tool) - so **no CrossOver** (paid/proprietary). Whisky (free, from GitHub)
-is the Wine layer; fallback is raw **Apple GPTK** (free, official) if Whisky's runtime is dead.
+publishable free tool) - so **no CrossOver** (paid/proprietary). ✅ **Resolved:** the Wine layer is
+the **Gcenx `game-porting-toolkit` cask** (free, bundles Apple's D3DMetal). Whisky was tried first
+and is **dead** (its runtime hosting 404s) - see the Path 1 section for that dead end.
 
 ---
 
@@ -24,26 +32,33 @@ is the Wine layer; fallback is raw **Apple GPTK** (free, official) if Whisky's r
 - Unity **2022.3.62f3 LTS**, **Mono**, **x86-64**. Managed CIL + assets are portable.
 - **Native code port PROVEN:** the ARM64 Mono player boots and loads `Assembly-CSharp.dll`
   + all assemblies (PhysX/Input/subsystems init, version + save-path correct).
-- **The original blocker was shaders - now SOLVED.** As shipped, all **60** shaders are
-  **D3D11-only bytecode** (`shaderPlatform 4`), incl. **20 custom Shader Graphs** whose **source
-  is NOT in the build** (only DXBC + ShaderLab metadata). Untreated, the native render path fails
-  (`NullGfxDevice`; `-force-metal` → "shaders will not be available" → `InitializeEngineGraphics
-  failed`). **All 60 have since been converted to Metal offline** (Paths 2+3 below) - the DXBC
-  turned out to be sufficient; source was never needed.
-- `tools/transplant.sh` works end-to-end. ⚠️ The later runtime fixes (BCL swap, Lang/custommusic
-  symlinks, burst-bundle removal - see "Native runtime fixes") are **not yet folded into it**;
-  apply by hand on a rebuild.
+- **The original blocker was shaders - now SOLVED.** As shipped, all shaders are **D3D11-only
+  bytecode** (`shaderPlatform 4`) - **60 in 5.1, 65 in 7.0** - incl. the custom Shader Graphs
+  (20 → 25) whose **source is NOT in the build** (only DXBC + ShaderLab metadata). Untreated, the
+  native render path fails (`NullGfxDevice`; `-force-metal` → "shaders will not be available" →
+  `InitializeEngineGraphics failed`). **All of them are now converted to Metal offline** (Paths 2+3
+  below) - the DXBC turned out to be sufficient; source was never needed.
+- **`tools/port.sh` is the whole native build in one command** - it runs `transplant.sh` **and** the
+  runtime fixes (BCL swap, Lang/custommusic symlinks, burst-bundle removal), the shader passes, the
+  ggm patches, sign, and a headless verify. (The runtime fixes used to be by-hand; they are folded
+  in now.)
 - **Env gotchas (important for any session):**
   - Repo lives in **iCloud-synced `~/Documents`** → the iCloud file provider re-stamps
     `com.apple.FinderInfo`, which **breaks `codesign`**. Build/sign the `.app` **outside**
     iCloud and keep the runnable app in **`~/Applications`** (local). Ad-hoc sign there.
-  - Current signed native build (code-only, does not render): `~/Applications/CasualtiesUnknown.app`.
+  - Working native builds: the 5.1 port at `~/Applications/CU_metaltest.app`, and the 7.0 port at
+    `~/Applications/Casualties.Unknown.Demo.v7.0.macOS.arm64.Metal.Native.app` (both render).
   - idalib venv: `~/Documents/TNC640unix/scratchpad/idalibvenv` (import `idapro`).
   - UnityPy venv (session scratchpad): `…/scratchpad/upyvenv`.
 
 ---
 
-## Path 1 - Whisky / Apple GPTK (Wine + Rosetta 2 + D3DMetal)   ← CURRENT
+## Path 1 - Whisky / Apple GPTK (Wine + Rosetta 2 + D3DMetal)   ✅ DONE
+
+> **Historical note:** this section records the full Wine-layer hunt, including the Whisky dead end
+> and the unchecked setup boxes below - kept as a dead-end log. **The outcome is settled:** the
+> Gcenx GPTK cask (which bundles D3DMetal) is the layer, and the game runs. The unchecked `[ ]`
+> items are the *abandoned* Apple-GPTK-dmg route, not live TODOs.
 
 Run the **original, unmodified** Windows build; translate **D3D11 → Metal at runtime,
 including shaders**. Sidesteps the shader wall entirely.
@@ -337,7 +352,8 @@ shaders reference the same code entry from several passes). The 4 hand-recovered
 can't express their `float2 _PlayerPos@148` (4-mod-8 offset) as an MSL member, and the hand MSL
 already matches the serialized offsets. **User confirmed the port WORKS in gameplay.** Pre-v2
 backups of all four `.assets`: `~/Games/assets-backup-v1/`. All of this is REQUIRED READING
-before porting the newer 6.0 Steam demo - same machinery, same traps.
+before porting the newer 7.0 Steam demo - same machinery, same traps (it was: see
+[`docs/port-7.0.md`](docs/port-7.0.md)).
 
 ## ✅ SOLVED - Right Mouse Button on MacBook trackpads (2026-07-13)
 
@@ -376,11 +392,14 @@ Recon note: no decompiler on the box; `GetMouseButton` appears exactly ONCE in A
 (button 0, `AdaptiveButton`) - everything else is `Input.GetKey*(KeyBinds.GetBind("name"))`.
 The IL scanners used to find this are in the session scratchpad pattern: dnfile + a small
 call/ldstr walker (resolve MemberRef tokens, print the `ldstr` immediately preceding each
-`GetBind`). Reusable for the 6.0 demo port.
+`GetBind`). Reused for the 7.0 demo port (where the bind store had moved to `settings.json`).
 
 ## Resuming in a new session
 
-1. Read this file + `README.md` (esp. "Result: the shader wall").
-2. Check which Path's tasks are unchecked. Current focus = **Path 1**.
-3. Tooling in `tools/` (`transplant.sh`, idalib recon scripts). Demo lives locally in
-   `CasualtiesUnknownDemo/` (git-ignored). Never commit game binaries.
+1. Read `README.md` (esp. "The shader wall") + **[`docs/port-7.0.md`](docs/port-7.0.md)** - the
+   latter is the current state of the world (7.0 port, the retired shader tail, the traps).
+2. **Both paths and the 7.0 demo are done.** The only open work is the human visual-QA sweep and the
+   menu-only GPU-waste bug (see the status block at the top). There is no "current path" to resume -
+   the next real work is the **8.0 / full-game re-run**, which is `tools/port.sh --win <newbuild>`.
+3. Tooling in `tools/` - `port.sh` (the one-command build), `transplant.sh`, `rewrap/`, idalib recon
+   scripts. Demo lives locally in `CasualtiesUnknownDemo/` (git-ignored). Never commit game binaries.

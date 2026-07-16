@@ -176,7 +176,8 @@ mismatch, and **fails loudly if 0 stock shaders transplant** (see the trap below
 ### TWO TRAPS THIS PORT HIT - both now guarded in port.sh
 
 **1. There are TWO donors and they are NOT interchangeable.**
-`EmptyMac.app` (in the repo) is the **player skeleton** - the native ARM64 UnityPlayer/Mono.
+`EmptyMac.app` (kept locally; gitignored, like all `.app`s) is the **player skeleton** - the native
+ARM64 UnityPlayer/Mono.
 `~/UnityProjects/EmptyMac/Build/Donor.app` is the **shader donor** - the `DonorSetup` build whose
 Always-Included-Shaders list forces all 40 stock shaders to compile to Metal. Point
 `transplant_stock.py` at the skeleton and it skips all 40 with `NOT IN DONOR`, transplants
