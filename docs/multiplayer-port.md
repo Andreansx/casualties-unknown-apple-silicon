@@ -235,6 +235,26 @@ Ran the installed `.app` on a real display (the same day, right after §2d):
 push-to-talk needs a real keypress), chat, and the B10 input pass (`krokosha_coop_pointfingerat`
 defaults to MMB, which a trackpad cannot produce).
 
+### 2g. A headless instance burns 1.5 cores unless you cap it (2026-07-18)
+
+User-reported symptom: the laptop got hot around the vents while playing against the local test
+host. Measured cause — a `-batchmode -nographics` instance has **no display to pace against**, so
+Unity's loop free-runs: **~145% CPU (1.5 cores) for a character standing still**. Same family as
+the 37 W `vSyncCount=0` bug in [`port-7.0.md`](port-7.0.md); different trigger.
+
+Fix, both applied by `tools/mp-playtest.sh` and measured:
+
+| configuration | host CPU (idle, post-worldgen) |
+|---|---|
+| uncapped (`--no-throttle`) | ~145 % |
+| `--ksmulti-runcommand "framerate 30"` | ~42 % |
+| + `taskpolicy -b` (background QoS → E-cores) | ~20–40 %, off the P-cores |
+
+The game's own `framerate` console command sets `Application.targetFrameRate` and **does work in a
+build**, contrary to its own help text ("might not work in build"). Demote to background QoS only
+*after* `FinishWorldGeneration` — worldgen is genuinely CPU-hungry and you do not want it on the
+E-cores. A client still joins and syncs correctly against an E-core host (verified).
+
 ---
 
 ## 3. Blocker map (with current status)

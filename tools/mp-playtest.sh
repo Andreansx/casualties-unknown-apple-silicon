@@ -28,11 +28,15 @@
 #   --batch-client   run YOUR client headless too - proves the plumbing without taking the screen
 #   --stop           kill a host left running by --host-only
 #   --refresh        force the host clone to be rebuilt from --app
+#   --host-fps <n>   frame cap for the second player                              [default: 30]
+#   --no-throttle    leave the second player uncapped and on the P-cores. It will then burn
+#                    ~1.5 CORES doing nothing and cook the laptop - only for measuring that.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$HOME/Applications/Casualties.Unknown.Demo.v7.0.macOS.arm64.Metal.Native.app"
 NAME="TestHost"; PORT=7790; HOST_ONLY=0; BATCH_CLIENT=0; STOP=0; REFRESH=0
+HOSTFPS=30; THROTTLE=1
 CACHE="$HOME/.cache/casualties-port"
 CLONE="$CACHE/coop-testhost.app"
 PIDF="$CACHE/coop-testhost.pid"
@@ -50,6 +54,8 @@ while [ $# -gt 0 ]; do
     --batch-client) BATCH_CLIENT=1; shift ;;
     --stop)         STOP=1; shift ;;
     --refresh)      REFRESH=1; shift ;;
+    --host-fps)     HOSTFPS="$2"; shift 2 ;;
+    --no-throttle)  THROTTLE=0; shift ;;
     -h|--help)      sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown arg: $1" ;;
   esac
@@ -100,9 +106,17 @@ fi
 stop_host                                    # never leave two hosts fighting for the port
 BEPLOG="$CLONE/Contents/BepInEx/LogOutput.log"
 rm -f "$BEPLOG"
-say "starting the second player \"$NAME\" (headless) on 127.0.0.1:$PORT"
+say "starting the second player \"$NAME\" (headless, capped to ${HOSTFPS}fps) on 127.0.0.1:$PORT"
+# THROTTLE, do not skip this. With -nographics there is no display to pace against, so Unity's
+# loop spins as fast as it can: measured ~145% CPU (1.5 cores) for a character standing still,
+# which is what makes the laptop hot. The game's own `framerate` console command sets
+# Application.targetFrameRate and DOES work in a build (its help text doubts it) -> ~42%.
+# The host is authoritative but only simulates; 30 Hz is plenty for a test partner.
+HOSTCAP=()
+[ "$THROTTLE" = 1 ] && HOSTCAP=(--ksmulti-runcommand "framerate $HOSTFPS")
 "$CLONE/Contents/MacOS/coop-launch" -batchmode -nographics -logFile "$CACHE/coop-testhost.unity.log" \
-    --ksmulti-setname "$NAME" --ksmulti-starthost --ksmulti-immidiate-start >/dev/null 2>&1 &
+    --ksmulti-setname "$NAME" --ksmulti-starthost --ksmulti-immidiate-start \
+    "${HOSTCAP[@]}" >/dev/null 2>&1 &
 echo $! > "$PIDF"
 
 # wait until it is actually hosting AND has generated the world, else the join races worldgen
@@ -115,6 +129,13 @@ for i in $(seq 1 60); do
 done
 grep -qa "Succesfully started: Host" "$BEPLOG" 2>/dev/null \
   || { tail -5 "$BEPLOG" 2>/dev/null; die "never started hosting (see $BEPLOG)"; }
+# Worldgen is genuinely CPU-hungry, so demote only afterwards: background QoS parks the process
+# on the efficiency cores, taking the idle host to ~20-40% of one core. Verified that a client
+# still joins and syncs against an E-core host.
+if [ "$THROTTLE" = 1 ]; then
+  taskpolicy -b -p "$(cat "$PIDF")" 2>/dev/null \
+    && ok "second player demoted to the efficiency cores (background QoS)"
+fi
 ok "second player is in a generated world, listening on 127.0.0.1:$PORT"
 
 if [ "$HOST_ONLY" = 1 ]; then
