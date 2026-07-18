@@ -28,7 +28,15 @@ First is `GAME_FILES_HASH` and it's of the ulong type. Then there is `FULL_VERSI
 
 There is the `INPUT_PASSWORD`, then `colour` and it's type is `Color24`. Then `CLIENT_JOIN_SECRET`, and then the mod list which is composed of BepInEx plugin GUIDs.   
 
-Note that in fact there is no `SteamID` here. The introduction here is transport-agnostic so a client running the Mac Port, and a client running the Steam-launched Windows build, can exchange the same payload structure. So a Mac client running the game with `--ksmulti-nosteam` can join a Steam-launched Windows client over direct IP.
+Note that in fact there is no `SteamID` here. The introduction here is transport-agnostic so a client running the Mac Port, and a client running the Steam-launched Windows build, can exchange the same payload structure. So a Mac client running the game with `--ksmulti-nosteam` can join a Steam-launched Windows client over direct IP.   
+
+#### admission control
+
+A join can be refused with `ValidateClientConnectIntroductionPacket` by a couple of reasons. For example, duplicate names, `PLAYER_COUNT_LIMIT` exceeded, wrong password, ban list or three more specific ones.   
+
+The firs tone is the Game files hash. The game runs the a1 variant of the Fowlerr-Noll-Vo hash function. The game runs Assembly-CSharp.dll through it to see if both ends of a connection are running the same code. It is content-addressed so it is not dependent on the platform. The ARM64 port of this game has a byte-identical Assembly-CSharp.dll to the Windows build, so it hashes identically. Cross-play would not be possible without this. If Unity didn't ship C# bytecode, and shipped compiled x86_64 code, then we would have to either do recompilation, which would change the hash, so there would be need for spoofing the hash to allow cross-platform play.   
+That was proven by renaming the Mac bundle's `Contents/Managed` symlink and then the client logs `GAME HASH CALCULATION: Assembly-CSharp.dll DOES NOT EXIST????`, then the server answers `Connection Rejected: Game file Hashes mismatch.`    
+
 
 ## Status: two working ports
 
