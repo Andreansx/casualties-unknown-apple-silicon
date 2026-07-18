@@ -28,6 +28,20 @@ it is fully ported - 65/65 Metal, one-command build, gameplay power re-measured.
 [`docs/port-7.0.md`](docs/port-7.0.md) for the 7.0 write-up; 8.0 / the full release are expected
 to be pure re-runs of `tools/port.sh`.
 
+**Also in progress - online multiplayer on the native port.** The community co-op mod
+[**Casualties: Together**](https://github.com/creaturefeaturelarry/casualties-together) (KrokMP,
+BepInEx 5 + Harmony) is Windows-only. We are bringing it to the native arm64 build *in this
+repo* - not by forking the mod (it ships no source and no license; we only adapt a copy the user
+downloads themselves). The one hard blocker was that Harmony/MonoMod cannot patch under Mono's
+`MAP_JIT` W^X memory on Apple Silicon; the usual answer is "run it under Rosetta", which defeats
+the whole point of the native port. **We solved it natively** with a tiny native helper
+(`unprotect → write → reprotect → flush-icache` in one call) injected ahead of BepInEx's
+preloader - BepInEx 5 now reaches `Chainloader startup complete` on a genuinely arm64 process.
+The mod's own code is architecture-neutral MSIL and its two native deps (Steam, Opus) have arm64
+builds, so the remaining work is packaging, not research. See
+[`docs/port-7.0.md`](docs/port-7.0.md) for the analysis. Status: **experimental, not yet a
+one-command install.**
+
 The whole stack is **free**: Rosetta 2 (built into macOS) + the Gcenx `game-porting-toolkit`
 cask (which bundles Apple's D3DMetal) + Unity 2022.3.62f3 for the native path. No CrossOver,
 no paid tools, no Apple-developer download.

@@ -8,6 +8,11 @@ verifies headlessly. Power comparisons use **[`powermeasure.sh`](powermeasure.sh
 are `run-native.sh` (native `.app`) and `run-d3dmetal.sh` (Path 1). The rest of this file covers the
 one-off RE tooling.
 
+**Online co-op (native arm64):** [`bepinex-applesilicon/`](bepinex-applesilicon/) makes BepInEx 5
++ Harmony work on a native arm64 Mono game (the hard blocker for running the *Casualties: Together*
+co-op mod without Rosetta) — **solved**, see its README. The Casualties-specific installer
+(`mp-install.sh`) is not built yet. Full picture + roadmap: [`../docs/multiplayer-port.md`](../docs/multiplayer-port.md).
+
 ---
 
 # RE tooling (idalib)

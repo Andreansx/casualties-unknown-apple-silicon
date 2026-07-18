@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Builds AppleSiliconShim.dll — the Doorstop entrypoint shim that installs an arm64-correct
+    MonoMod detour platform before BepInEx's preloader runs.
+
+    Pass -p:CoreDir=<path to a BepInEx 5.4.23.x BepInEx/core> so the MonoMod reference assemblies
+    resolve (they are NOT redistributed here — point at the user's own BepInEx install).
+    ../build.sh does this for you.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>AppleSiliconShim</AssemblyName>
+    <RootNamespace>AppleSiliconBepInEx</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>none</DebugType>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="MonoMod.RuntimeDetour">
+      <HintPath>$(CoreDir)/MonoMod.RuntimeDetour.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MonoMod.Utils">
+      <HintPath>$(CoreDir)/MonoMod.Utils.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

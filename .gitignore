@@ -2,7 +2,17 @@
 # Copyrighted game content + ~300 MB of binaries. Kept locally only.
 CasualtiesUnknownDemo/
 CasualtiesUnknown/
+casualties-together/
+# The co-op mod payload (NexusMods download) + the Windows BepInEx it ships with.
+# Third-party binaries, no redistribution license - adapt the user's own copy in place.
+KrokMP*/
+BepInEx_win_x64_5/
 
+# ── bepinex-applesilicon build output (source is committed, artifacts are rebuilt) ──
+tools/bepinex-applesilicon/dist/
+bin/
+obj/
+*.dylib
 # ── Build output - the ported macOS .app is the deliverable ───
 # Contains transplanted game data; don't push it to git.
 build/

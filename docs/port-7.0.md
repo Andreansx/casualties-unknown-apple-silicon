@@ -144,8 +144,9 @@ Members that were already aligned take the byte-identical code path they always 
 logic lives *entirely* inside the branch that previously just threw.
 
 **Result: 25/25 custom shaders convert, 0 failed, `--compile-check` (a real `xcrun metal`
-compile) passes.** It also retroactively converts the 5.1 build's 20/20 - including the two that
-were hand-authored there - which is strong independent evidence the layout is right.
+compile) passes.** It also retroactively converts the 5.1 build's 20/20 - including all **four**
+that were hand-authored there (`inject_metal.py`, path IDs 68-71: BonusPass, DamageScreen,
+ScreenPass, AberrationShader) - which is strong independent evidence the layout is right.
 
 **Why this mattered:** the hand path cost a full harvest-under-D3DMetal + manual MSL recovery
 **every time the devs recompile a shader** - which they just did, in a single point release

@@ -1,0 +1,6 @@
+label,cpu_mw,gpu_mw,gpu_res,secs
+native-menu,618.4,1522.5,36.4,20
+native-gameplay,1622.3,1123.8,46.2,20
+baseline,188.9,17.6,1.2,20
+d3dmetal-menu,1688.0,542.7,44.3,20
+d3dmetal-gameplay,3688.2,1306.2,34.5,20
