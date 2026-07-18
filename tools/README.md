@@ -14,7 +14,9 @@ co-op mod without Rosetta) — **solved**, see its README. **[`mp-install.sh`](m
 (`--app <CU.app> --mod <KrokMP download>`) then installs the mod itself in one command: macOS
 BepInEx + the arm64 fix into the bundle, the mod's AnyCPU plugins, `libopus.dylib`, the mic
 Info.plist key, the game-hash symlink, a launcher, re-sign (`--uninstall` reverses it).
-**Direct-IP co-op verified working** between two native instances. Full picture + roadmap:
+**[`mp-playtest.sh`](mp-playtest.sh)** then lets you actually play it alone: it starts a second
+player headless (a real character, no window) and launches your game already connected, so co-op
+is testable on one Mac. **Direct-IP co-op verified working** between two native instances. Full picture + roadmap:
 [`../docs/multiplayer-port.md`](../docs/multiplayer-port.md).
 
 ---
