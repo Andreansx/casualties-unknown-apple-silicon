@@ -5,9 +5,9 @@ community mod **Casualties: Together** (KrokMP) — **without Rosetta**, because
 the port's whole reason to exist (native gameplay draws ~47% less power than the Wine/D3DMetal
 path; see [`port-7.0.md`](port-7.0.md) and the power memory).
 
-**Status in one line:** the single hard research blocker is **solved and reproducible** (BepInEx
-now boots on native arm64); everything else is known, scoped, and mechanical. This is a
-**packaging** problem now, not a research one.
+**Status in one line:** **Phase 1 is DONE** — the mod loads, all its Harmony patches apply, and a
+real co-op session runs between two native arm64 instances over direct IP. What is left is Steam
+lobbies (Phase 2) and on-screen QA.
 
 This document is the durable state so a fresh session can pick up any single thread. It records
 what the mod *is*, what was proven, the full blocker map with per-item status, the repo-layout
@@ -21,15 +21,18 @@ decision, and the phased to-do.
 |---|---|
 | Mod code portability (is the DLL arch-neutral?) | ✅ **Yes** — all managed assemblies are AnyCPU MSIL; nothing to recompile |
 | BepInEx/Harmony on native arm64 (the hard blocker) | ✅ **SOLVED** (spike passed, reproducible) — `tools/bepinex-applesilicon/` |
+| **The mod itself running** | ✅ **LOADS + all 225 `[HarmonyPatch]`es apply**, transpilers included, 0 errors |
+| **Direct-IP co-op session** | ✅ **VERIFIED** — two native arm64 instances: join → seed sync → spawn |
+| One-command installer (`tools/mp-install.sh`) | ✅ **built**, and `--uninstall` reverses it |
+| Opus voice codec | ✅ arm64 `libopus.dylib` installed into `Contents/PlugIns` (voice itself is untested) |
+| Microphone permission | ✅ `NSMicrophoneUsageDescription` added by the installer |
+| Auto-updater | ✅ patcher dropped, `Multiupdater.dll` **kept** — see B8, the earlier plan was wrong |
+| Game-hash gate | ✅ **proven by negative control**; it is mandatory for ANY connection, not just cross-play |
 | Steam lobbies on arm64 | 🔵 Possible (universal `libsteam_api.dylib`), **deferred to Phase 2** (direct-IP works without it) |
-| Opus voice codec | 🟢 arm64 `libopus.dylib` already on the dev Mac (brew) |
-| Steamworks.NET | 🟠 must **recompile** with `STEAMWORKS_LIN_OSX` (packing differs) |
-| Microphone permission | 🟡 add `NSMicrophoneUsageDescription` or voice **TCC-kills** the app |
-| Auto-updater | 🟡 strip it or it overwrites adapted files with Windows binaries |
-| Game-hash cross-play gate | 🟠 one symlink (`Contents/Managed`) makes Mac hash == Windows hash |
-| One-command installer (`tools/mp-install.sh`) | ⬜ **not built yet** — the main remaining work |
+| Steamworks.NET | 🟠 must **recompile** with `STEAMWORKS_LIN_OSX` (packing differs) — Phase 2 |
+| On-screen QA (menus, HUD, input, voice) | ⬜ everything so far is headless; needs an unlocked Mac with a display |
 
-Legend: ✅ done · 🟢 trivial/have-it · 🟡 easy fix · 🟠 real work · 🔵 optional/later · ⬜ to build.
+Legend: ✅ done · 🟢 trivial/have-it · 🟡 easy fix · 🟠 real work · 🔵 optional/later · ⬜ to do.
 
 ---
 
@@ -52,9 +55,9 @@ Legend: ✅ done · 🟢 trivial/have-it · 🟡 easy fix · 🟠 real work · �
 
 ---
 
-## 2. What was accomplished (2026-07-17)
+## 2. What was accomplished
 
-### 2a. Behavioural analysis of the mod (decompiled to C#)
+### 2a. Behavioural analysis of the mod (decompiled to C#) — 2026-07-17
 
 Decompiled `KrokoshaCasualtiesMP.dll` with `ilspycmd` (IDA has `cli.dylib` but **no CIL
 Hex-Rays decompiler** — ILSpy is the right tool for MSIL; IDA is only for the native `.dylib`s,
@@ -89,7 +92,7 @@ which we replace). Findings, all from the 54k-line decompile:
   `Microphone.devices.Length != 0`. On macOS, using the mic without
   `NSMicrophoneUsageDescription` in Info.plist doesn't just deny — it **TCC-kills the process**.
 
-### 2b. The BepInEx-on-arm64 spike — SOLVED
+### 2b. The BepInEx-on-arm64 spike — SOLVED (2026-07-17)
 
 Full write-up + code: **[`../tools/bepinex-applesilicon/`](../tools/bepinex-applesilicon/README.md)**.
 
@@ -111,7 +114,7 @@ Full write-up + code: **[`../tools/bepinex-applesilicon/`](../tools/bepinex-appl
   crash (`HarmonyInteropFix` is unconditional); (2) the only prior "working" arm64 boots were
   Rosetta, not native.
 
-### 2c. Steam / networking research (external)
+### 2c. Steam / networking research (external) — 2026-07-17
 
 - `libsteam_api.dylib` is **universal (x86_64+arm64)** since Steamworks SDK 1.52; Valve's live
   `steamclient.dylib` went universal 2026-06-24 with the full lobby protocol in the arm64 slice.
@@ -124,6 +127,78 @@ Full write-up + code: **[`../tools/bepinex-applesilicon/`](../tools/bepinex-appl
   cleanly). One caveat to test at runtime: `libsteamwebrtc.dylib` is x86_64-only, so direct P2P
   may fall back to SDR relay.
 
+### 2d. Phase 1 executed — the mod actually runs (2026-07-18)
+
+`tools/mp-install.sh` was built and the whole path verified **headlessly** (no display needed —
+everything below is from `-batchmode -nographics` runs and their logs).
+
+**Install layout — BepInEx goes INSIDE the bundle.** `BepInEx.Preloader.PreloaderRunner` derives
+its root from the *invoked assembly*, not the executable:
+`bepinRootPath = Utility.ParentDirectory(DOORSTOP_INVOKE_DLL_PATH, 2)`. Our Doorstop target is
+`<app>/Contents/BepInEx/core/AppleSiliconShim.dll`, so the root resolves to `<app>/Contents/BepInEx`
+and the `.app` stays one self-contained, movable unit (no `BepInEx/` litter next to it, which is
+what the upstream macOS layout would give). Confirmed working end-to-end.
+
+The one cost of that choice, stated plainly: BepInEx writes its log/config/cache back inside the
+bundle, so after the first modded launch `codesign --verify --deep --strict` reports *"a sealed
+resource is missing or invalid"*. That is cosmetic **for this app**: the kernel validates the main
+Mach-O (untouched) and Gatekeeper only re-checks the resource envelope for quarantined apps, which
+a locally built ad-hoc-signed `.app` never is. Verified by repeated launches with the seal broken.
+If the port ever needs to survive notarisation, move `BepInEx/` next to the `.app` instead — that
+is the only reason to prefer the upstream layout.
+
+**The mod loads and every patch applies.** BepInEx reports `2 plugins to load`, then
+`Plugin KrokoshaCasualtiesMP version 4.0.1 is loaded!`. That line is decisive: in the decompile it
+is only reached *after* `harmony.PatchAll()` + `ExtraPatches.ApplyPatches()` return, both inside a
+try/catch whose failure branch logs `failed to load!` and bails instead. So all **225
+`[HarmonyPatch]` attributes** applied on native arm64. The client log also shows the mod's
+**transpilers** succeeding by name (`Body.Attack`, `TurretScript Shoot`, `BuildingEntity Update`,
+`DamagingCrate OnCollisionEnter2D`) — real IL rewriting, not just simple prefix/postfix detours.
+Zero errors in the BepInEx log; zero managed exceptions in the Unity log.
+
+Also confirmed incidentally: `Application.version` reads `7.0.1`, so the mod's
+`if (Application.version != "7.0.1")` version gate passes — that is `port.sh` step 5's
+`CFBundleShortVersionString` stamp paying off.
+
+**A real co-op session runs.** Host + client, two native arm64 instances on one Mac:
+
+```
+HOST   SERVER: SENDING CHAT ANNOUNCEMENT: MacClient just joined the game!
+HOST   SERVER: Sending a spawn location for PB(ID:1, name:MacClient) to (0.00, 486.62, 0.00)
+CLIENT Multiplayer: Connected!  :)
+CLIENT Multiplayer: GenerateWorld_SeedAnnounce, received worldgen seed.
+CLIENT CLIENT: Received starter char state packet, that im applying just now. POS: (0.00, 486.61)
+CLIENT Creating other player characters!
+```
+
+**B11 proven by negative control, and it is stronger than we thought.** With
+`Contents/Managed` renamed away, the client logs
+`GAME HASH CALCULATION: Assembly-CSharp.dll DOES NOT EXIST????` and is then met with
+`Connection Rejected: Game file Hashes mismatch.` Restore the symlink and the same session joins
+fine. So the hash gate is **on by default** — without that one symlink a Mac client cannot connect
+to *any* server, Mac or Windows. It is not merely a cross-play nicety.
+
+### 2e. Two upstream quirks found while testing (neither is a port defect)
+
+- **`--ksmulti-startclient` cannot connect — on any platform.** The CLI auto-connect path passes a
+  hardcoded literal `"localhost:7790"` (verified: the UTF-16 string is in the DLL; `--ksmulti-ip-port`
+  only feeds the *UI* path). `Net.TryParseIPPORT` decides IPv4-vs-IPv6 by asking whether a `.`
+  appears before the `:` — `"localhost:7790"` has no dot, so it takes the IPv6 branch and hands the
+  **whole string, port included**, to LiteNetLib as the host. `NetUtils.ResolveAddress` then calls
+  `Dns.GetHostEntry("localhost:7790")`, which throws, and `NetManager.Connect` swallows it into
+  `DisconnectReason.UnknownHost` → the mod prints `Multiplayer: Unknown Host`. A dotted IPv4 typed
+  into the Direct Connect UI parses correctly, so this only bites the CLI shortcut.
+  **Workaround for headless testing:** drive the mod's own console instead —
+  `--ksmulti-runcommand "connect 127.0.0.1:7790"` (its `connect` command assigns `INPUT_IPPORT`
+  directly). Host/dedicated-server flags are unaffected: those only use the *port*, so the same
+  mis-parse is invisible there.
+- **The mod re-enables `Application.runInBackground`** (`= network_system_is_running ||
+  !IsWorldGenerated() || UIMainMenu.IsOpen()`), which is exactly the setting `port.sh` turns **off**
+  in `globalgamemanagers` to fix the screen-lock wedge (Metal loop driven against a sleeping display
+  with no acquirable drawable → hard hang). Co-op genuinely needs it — a client that pauses on focus
+  loss would desync and time out — so this is a **real trade-off, not a bug to patch out**: while a
+  session is live, expect the pre-fix screen-lock behaviour. Don't let the display sleep mid-session.
+
 ---
 
 ## 3. Blocker map (with current status)
@@ -132,15 +207,15 @@ Full write-up + code: **[`../tools/bepinex-applesilicon/`](../tools/bepinex-appl
 |---|---|---|---|
 | **B1** | MonoMod picks x86 detour platform (ARM bit) | — | **Non-issue** — BepInEx sets ARM; and we set `DetourHelper.Native` directly, bypassing selection |
 | **B2** | Harmony detours die under Mono `MAP_JIT` W^X | 🔴→✅ | **SOLVED** — `tools/bepinex-applesilicon/` (native `as_jit_write` + Doorstop shim) |
-| **B3** | Steamworks.NET is the Windows build (wrong packing) | 🟠 | Recompile w/ `STEAMWORKS_LIN_OSX`, `Pack=4`. MIT, not strong-named |
-| **B4** | `steam_api64.dll` → needs `libsteam_api.dylib` | 🟡 | Drop in universal SDK ≥1.52 dylib |
-| **B5** | `opus.dll` → needs `libopus.dylib` | 🟢 | arm64 dylib already present (brew); ship a copy |
+| **B3** | Steamworks.NET is the Windows build (wrong packing) | 🟠 | Phase 2: recompile w/ `STEAMWORKS_LIN_OSX`, `Pack=4`. MIT, not strong-named. **Until then the launcher forces `--ksmulti-nosteam`** — `DllCheck.Test()` would P/Invoke kernel32 and throw, and `KSteam.CheckSteam()` does not catch that |
+| **B4** | `steam_api64.dll` → needs `libsteam_api.dylib` | 🟡 | Phase 2: drop in universal SDK ≥1.52 dylib. Not installed today |
+| **B5** | `opus.dll` → needs `libopus.dylib` | ✅ | **DONE** — installer copies brew's arm64 dylib to `Contents/PlugIns`; `OpusSharp` imports plain `"opus"`, which Mono maps to `libopus.dylib`. Voice not yet exercised for real |
 | **B6** | `user32!SetWindowText` P/Invoke | ✅ | **Dissolved** — self-guarding, no-ops on macOS |
-| **B7** | Mic without `NSMicrophoneUsageDescription` → TCC kill | 🟡 | Add the Info.plist key + re-sign |
-| **B8** | Auto-updater overwrites adapted files | 🟡 | Remove `Multiupdater.dll` + `autoupdater_patcher.dll` |
-| **B9** | `port.sh` strips `Plugins/x86_64` + re-signs whole bundle | 🟢 | Install mod **after** `port.sh`, then re-sign |
-| **B10** | RMB/MMB inputs vs our trackpad rebind | 🟢 | `keybinds.json` is data-driven; ship a Mac preset (see [`port-7.0.md`](port-7.0.md)) |
-| **B11** | Game-hash uses `Application.dataPath/Managed` (empty on macOS) | 🟠 | Symlink `Contents/Managed → Resources/Data/Managed` |
+| **B7** | Mic without `NSMicrophoneUsageDescription` → TCC kill | ✅ | **DONE** — installer adds the key, then re-signs |
+| **B8** | Auto-updater overwrites adapted files | ✅ | **DONE, but not as first planned:** drop `autoupdater_patcher.dll` only. It is the patcher that clones a staged update over `Environment.CurrentDirectory`. **Keep `Multiupdater.dll`** — the mod's own settings GUI calls `Multiupdater.AutoUpdater` (`DrawUpdateButton`), so deleting it throws `TypeLoadException` inside `OnGUI`. With the patcher gone a staged update is simply never applied |
+| **B9** | `port.sh` strips `Plugins/x86_64` + re-signs whole bundle | ✅ | Install mod **after** `port.sh`; `mp-install.sh` re-signs at the end. Re-run it after every rebuild |
+| **B10** | RMB/MMB inputs vs our trackpad rebind | 🟡 | Open. The mod's own binds land in `settings.json` automatically; `krokosha_coop_pointfingerat` defaults to **Mouse2 (MMB)**, which a trackpad cannot produce — needs an on-screen pass to pick sane Mac defaults |
+| **B11** | Game-hash uses `Application.dataPath/Managed` (empty on macOS) | ✅ | **DONE + PROVEN** by negative control (§2d). Mandatory for *any* connection, not just cross-play |
 
 ---
 
@@ -148,7 +223,7 @@ Full write-up + code: **[`../tools/bepinex-applesilicon/`](../tools/bepinex-appl
 
 Both the native port and the mod-port live in **this** repo. Rationale:
 
-- The **mod installer** (`tools/mp-install.sh`, to build) is tightly coupled to `port.sh`: it runs
+- The **mod installer** (`tools/mp-install.sh`) is tightly coupled to `port.sh`: it runs
   as a post-step, depends on the bundle layout, the signing step, and the `Contents/Resources/Data`
   symlink pattern. Split out, it becomes a satellite that breaks whenever `port.sh` changes and
   can't be tested without this repo checked out beside it. The port and its mod adapter share a
@@ -161,7 +236,7 @@ Both the native port and the mod-port live in **this** repo. Rationale:
 
 Tidiness rules that keep the two concerns legible:
 - Port machinery stays where it is (`tools/port.sh`, `transplant.sh`, `rewrap/`, `hlslcc/`, …).
-- Everything mod-related is namespaced: `tools/bepinex-applesilicon/` (generic fix) and the future
+- Everything mod-related is namespaced: `tools/bepinex-applesilicon/` (generic fix) and
   `tools/mp-install.sh` (Casualties-specific glue), plus this doc.
 - **Copyrighted inputs are gitignored** and never committed: the game (`CasualtiesUnknownDemo/`),
   `casualties-together/`, the mod payload (`KrokMP*/`), and `BepInEx_win_x64_5/`. Built artifacts
@@ -172,24 +247,18 @@ Tidiness rules that keep the two concerns legible:
 
 ## 5. What still needs to be done (phased)
 
-### Phase 1 — native arm64, direct-IP multiplayer + voice (no Steam)
-The first genuinely playable milestone. Everything here is proven-possible.
-1. **`tools/mp-install.sh`** (the main deliverable) — takes a ported `.app` + the user's KrokMP
-   download and, as a post-`port.sh` step:
-   - lay down macOS-universal BepInEx 5.4.23.x + the `tools/bepinex-applesilicon/` artifacts into
-     `BepInEx/core`, and rewrite the launcher's `DOORSTOP_TARGET_ASSEMBLY` to the shim (B2);
-   - copy the mod's AnyCPU plugins into `BepInEx/plugins/KrokMP`;
-   - swap natives: `libopus.dylib` (B5), and the recompiled `Steamworks.NET.dll` (B3) even for the
-     no-Steam path, since `Packsize.Test()` runs regardless;
-   - strip `Multiupdater.dll` + `autoupdater_patcher.dll` (B8);
-   - add `NSMicrophoneUsageDescription` to Info.plist (B7);
-   - add the `Contents/Managed → Resources/Data/Managed` symlink (B11);
-   - ship a Mac `keybinds.json` preset (B10);
-   - re-sign the bundle ad-hoc (B9).
-2. **Exercise the real mod**, not just the self-test: install KrokMP into the harness and confirm
-   all 67 of its Harmony patch classes apply under the fix (they target classes present in our
-   `Assembly-CSharp.dll` — 66/67 confirmed, the 1 miss being a name-extraction artifact).
-3. **Direct-IP smoke test:** host on the Mac, connect a second client, verify a session.
+### Phase 1 — native arm64, direct-IP multiplayer ✅ DONE (2026-07-18)
+1. ✅ **`tools/mp-install.sh`** — one command, `--uninstall` reverses it. See §2d for the layout
+   decision and the header of the script for the per-step reasoning.
+2. ✅ **The real mod exercised**, not just the self-test: 225 `[HarmonyPatch]`es apply, transpilers
+   included.
+3. ✅ **Direct-IP session verified** between two native instances (join → seed sync → spawn).
+
+**Left over from Phase 1 — needs a display (nothing here is known-broken, just unobserved):**
+- Play a session on-screen: menus, the MP button, chat, the player list, HUD.
+- **Voice chat** end-to-end (the TCC prompt fires on first mic use — it cannot be answered headlessly).
+- **B10 input pass:** `krokosha_coop_pointfingerat` defaults to MMB, unreachable on a trackpad.
+- Sanity-check the screen-lock trade-off documented in §2e.
 
 ### Phase 2 — Steam lobbies
 4. Recompile Steamworks.NET (`STEAMWORKS_LIN_OSX`) at the mod's version and drop in universal
@@ -209,7 +278,24 @@ The first genuinely playable milestone. Everything here is proven-possible.
 
 - **Toolchain installed** (reversible): `brew install dotnet` (SDK 10) + `dotnet tool install -g
   ilspycmd`; `clang` from Xcode CLT. Uninstall via `brew uninstall dotnet` /
-  `dotnet tool uninstall -g ilspycmd`.
+  `dotnet tool uninstall -g ilspycmd`. `ilspycmd` needs
+  `export DOTNET_ROOT=/opt/homebrew/opt/dotnet/libexec PATH="$HOME/.dotnet/tools:$PATH"` — without
+  `DOTNET_ROOT` it just prints *"You must install .NET to run this application."*
+- **Install the mod:** `tools/mp-install.sh --app <CU.app> --mod <KrokMP download dir|zip>`.
+  BepInEx is fetched to `~/.cache/casualties-port/` on first use
+  (`BepInEx_macos_universal_5.4.23.5.zip` — the **macos_universal** asset; there is no
+  `unix_x64` one, and the mod's own INSTALLATION.txt points at the Windows build).
+- **Headless co-op test** (no display needed), two instances of the installed `.app`
+  (the second can be a cheap APFS clone — `cp -a`, the launcher is self-locating):
+  ```sh
+  Game.app/Contents/MacOS/coop-launch  -batchmode -nographics -logFile host.log \
+      --ksmulti-setname MacHost --ksmulti-starthost --ksmulti-immidiate-start
+  Game2.app/Contents/MacOS/coop-launch -batchmode -nographics -logFile client.log \
+      --ksmulti-setname MacClient --ksmulti-runcommand "connect 127.0.0.1:7790"
+  ```
+  Use `--ksmulti-runcommand "connect …"`, **not** `--ksmulti-startclient` (§2e: it is broken
+  upstream). Read the result from `<app>/Contents/BepInEx/LogOutput.log`, not the Unity log —
+  the mod logs through BepInEx.
 - **Decompile the mod:** `ilspycmd KrokoshaCasualtiesMP.dll -o out -r <refs>` with the port's
   `Managed/` + BepInEx `core/` as `-r` reference dirs (drop `opus.dll`/`steam_api64.dll` from refs —
   they're native and confuse the resolver).

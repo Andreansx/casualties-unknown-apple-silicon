@@ -10,8 +10,12 @@ one-off RE tooling.
 
 **Online co-op (native arm64):** [`bepinex-applesilicon/`](bepinex-applesilicon/) makes BepInEx 5
 + Harmony work on a native arm64 Mono game (the hard blocker for running the *Casualties: Together*
-co-op mod without Rosetta) — **solved**, see its README. The Casualties-specific installer
-(`mp-install.sh`) is not built yet. Full picture + roadmap: [`../docs/multiplayer-port.md`](../docs/multiplayer-port.md).
+co-op mod without Rosetta) — **solved**, see its README. **[`mp-install.sh`](mp-install.sh)**
+(`--app <CU.app> --mod <KrokMP download>`) then installs the mod itself in one command: macOS
+BepInEx + the arm64 fix into the bundle, the mod's AnyCPU plugins, `libopus.dylib`, the mic
+Info.plist key, the game-hash symlink, a launcher, re-sign (`--uninstall` reverses it).
+**Direct-IP co-op verified working** between two native instances. Full picture + roadmap:
+[`../docs/multiplayer-port.md`](../docs/multiplayer-port.md).
 
 ---
 
