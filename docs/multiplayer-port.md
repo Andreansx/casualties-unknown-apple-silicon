@@ -30,7 +30,8 @@ decision, and the phased to-do.
 | Game-hash gate | ✅ **proven by negative control**; it is mandatory for ANY connection, not just cross-play |
 | Steam lobbies on arm64 | 🔵 Possible (universal `libsteam_api.dylib`), **deferred to Phase 2** (direct-IP works without it) |
 | Steamworks.NET | 🟠 must **recompile** with `STEAMWORKS_LIN_OSX` (packing differs) — Phase 2 |
-| On-screen QA (menus, HUD, input, voice) | ⬜ everything so far is headless; needs an unlocked Mac with a display |
+| On-screen co-op (mod UI + joining with graphics) | ✅ **VERIFIED on a real display** — mod menu renders, session plays; one intermittent IMGUI race found (§2f) |
+| Voice chat / chat / B10 input | ⬜ needs a human at the keyboard (mic TCC prompt, push-to-talk, MMB bind) |
 
 Legend: ✅ done · 🟢 trivial/have-it · 🟡 easy fix · 🟠 real work · 🔵 optional/later · ⬜ to do.
 
@@ -198,6 +199,41 @@ to *any* server, Mac or Windows. It is not merely a cross-play nicety.
   with no acquirable drawable → hard hang). Co-op genuinely needs it — a client that pauses on focus
   loss would desync and time out — so this is a **real trade-off, not a bug to patch out**: while a
   session is live, expect the pre-fix screen-lock behaviour. Don't let the display sleep mid-session.
+
+### 2f. On-screen QA — co-op plays with graphics (2026-07-18)
+
+Ran the installed `.app` on a real display (the same day, right after §2d):
+
+- **The mod's UI renders correctly on the native Metal port.** Main menu shows
+  `CO-OP MOD v4.0.1 "RELEASE BUILD"`, the status line, the green `MP MOD` badge and the
+  **Open Multiplayer Mod Menu** button, over the normal game art. Nothing pink, nothing missing.
+- **A full co-op session runs on-screen**, headless host + GUI client: connect → worldgen from the
+  server's seed → `Received location for WorldPlacePlayer` → `Creating other player characters!`.
+  Reproduced across separate launches.
+- **`-screen-fullscreen 0` is ignored** — the game's own saved display setting wins, so a QA launch
+  takes over the whole screen. Budget for that when testing on someone's working machine.
+- ⚠️ **Intermittent IMGUI race in the mod's player-list UI (1 of 3 valid joins).** On one join:
+  ```
+  MAIN MENU UI: UnityEngine.ExitGUIException: GUILayout: Mismatched LayoutGroup.repaint
+    at UnityEngine.GUILayout.BeginVertical (…)
+    at KrokoshaCasualtiesMP.UIMainMenu._GUI_DrawSideMenuWithPlayerList ()
+    at KrokoshaCasualtiesMP.UIBullshit.__GUI__AllTheMenus ()
+  GUI Error: You are pushing more GUIClips than you are popping. Make sure they are balanced.
+  ```
+  ~1 s later, at the world scene change, the client shut down **cleanly** (`Plugin.OnDestroy()` →
+  `Can't add component to object that is being destroyed.` → Unity's normal shutdown dump — no
+  crash report, no signal). Cause is almost certainly LiteNetLib's async player-list callbacks
+  mutating the list *between* IMGUI's Layout and Repaint passes, which is what
+  `Mismatched LayoutGroup.repaint` means. **Nothing ported is implicated** — the stack is pure
+  `UnityEngine.GUILayout` plus the mod's own UI code, so this should reproduce on Windows; worth
+  confirming there before reporting it upstream. Causation between the exception and the quit is
+  *not* proven, only correlation in the one failing run.
+  (A separate "failure" while measuring turned out to be my own doing: `Connection Rejected: Player
+  with this name already exists` — the previous instance had not timed out on the host yet.)
+
+**Still not exercised on-screen:** voice chat (the mic TCC prompt has to be clicked by a human, and
+push-to-talk needs a real keypress), chat, and the B10 input pass (`krokosha_coop_pointfingerat`
+defaults to MMB, which a trackpad cannot produce).
 
 ---
 
