@@ -4,6 +4,32 @@ Making the Windows-only Unity game **Casualties: Unknown** run on Apple Silicon 
 without full-system emulation - so it can actually be played on battery (e.g. on a train)
 without the fans spinning up.
 
+## Networking in the game
+
+Of course this has to be on top cause this is my field where i do know a thing or two so I would like to write some of my own stuff here.   
+
+Basically, networking in this game does work as a client-server setup and not a mesh network. There is one player who is either the Host (he plays too), or a `DedicatedServer` who does not play. Everyone else is a client who asks for permission and connects to the server. 
+
+There are two transports, first one being Direct IP, it uses class `TransportLiteNetLib` and is available always. The second way is `TransportSteamworks` which is Steam's P2P and it is available only after `KSteam.Loaded` so when Steam initializes and a lobby exists.    
+
+### Direct IP over LiteNetLib. this works as of now. 
+
+#### sockets
+
+Host binds UDP on all interfaces with `netmgr.Start(7790)`, so basically the host does ignore the IP part of IP:port field, it listens on all interfaces.   
+The client runs `netmgr.Start()` and this is the source of the ephemeral port and then it runs `netmgr.Connect(ip,port,connectionData)`.   
+`NetType.Host` and `NetType.DedicatedServer` call `Start(port)`, only the client calls `Connect()`.
+
+#### First payload
+
+The client's first payload is a single blob with fields in this order: 
+
+First is `GAME_FILES_HASH` and it's of the ulong type. Then there is `FULL_VERSION_TAG` and that is a string composed of `Application.version` + `_MPv4.0.1` so for now it looks like `"7.0.1_MPv4.0.1"`. Then there is the `INPUT_USERNAME` which is self-explainatory. And from this point everything is compressed.   
+
+There is the `INPUT_PASSWORD`, then `colour` and it's type is `Color24`. Then `CLIENT_JOIN_SECRET`, and then the mod list which is composed of BepInEx plugin GUIDs.   
+
+Note that in fact there is no `SteamID` here. The introduction here is transport-agnostic so a client running the Mac Port, and a client running the Steam-launched Windows build, can exchange the same payload structure. So a Mac client running the game with `--ksmulti-nosteam` can join a Steam-launched Windows client over direct IP.
+
 ## Status: two working ports
 
 **1. The practical one - run the unmodified Windows `.exe`** under Wine + Rosetta 2 + Apple's
