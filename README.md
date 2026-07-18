@@ -17,6 +17,7 @@ There are two transports, first one being Direct IP, it uses class `TransportLit
 #### sockets
 
 Host binds UDP on all interfaces with `netmgr.Start(7790)`, so basically the host does ignore the IP part of IP:port field, it listens on all interfaces.   
+So a consequence of that is the fact, that we can set up port forwarding on, for example, my AirVPN, and then in the game the only thing we have to match is the port, because `Any` does include for example `wg0` interface and all interfaces for that matter.
 The client runs `netmgr.Start()` and this is the source of the ephemeral port and then it runs `netmgr.Connect(ip,port,connectionData)`.   
 `NetType.Host` and `NetType.DedicatedServer` call `Start(port)`, only the client calls `Connect()`.
 
@@ -28,18 +29,18 @@ First is `GAME_FILES_HASH` and it's of the ulong type. Then there is `FULL_VERSI
 
 There is the `INPUT_PASSWORD`, then `colour` and it's type is `Color24`. Then `CLIENT_JOIN_SECRET`, and then the mod list which is composed of BepInEx plugin GUIDs.   
 
-Note that in fact there is no `SteamID` here. The introduction here is transport-agnostic so a client running the Mac Port, and a client running the Steam-launched Windows build, can exchange the same payload structure. So a Mac client running the game with `--ksmulti-nosteam` can join a Steam-launched Windows client over direct IP.   
+Note that in fact there is no `SteamID` here. The introduction here is transport-agnostic so a client running the Mac Port, and a client running the Steam-launched Windows build, can exchange the same payload structure. So a Mac client running the game with `--ksmulti-nosteam` (the mod's argument) can join a Steam-launched Windows host over direct IP.   
 
 #### admission control
 
 A join can be refused with `ValidateClientConnectIntroductionPacket` by a couple of reasons. For example, duplicate names, `PLAYER_COUNT_LIMIT` exceeded, wrong password, ban list or three more specific ones.   
 
-The firs tone is the Game files hash. The game runs the a1 variant of the Fowlerr-Noll-Vo hash function. The game runs `Managed/Assembly-CSharp.dll` and `Application.dataPath` through it to see if both ends of a connection are running the same code. It is content-addressed so it is not dependent on the platform. The ARM64 port of this game has a byte-identical Assembly-CSharp.dll to the Windows build, so it hashes identically. Cross-play would not be possible without this. If Unity didn't ship C# bytecode, and shipped compiled x86_64 code, then we would have to either do recompilation, which would change the hash, so there would be need for spoofing the hash to allow cross-platform play.   
+The firs tone is the Game files hash. The game runs the a1 variant of the Fowler-Noll-Vo hash function. The game runs `Application.dataPath + "Managed/Assembly-CSharp.dll"` and through it to see if both ends of a connection are running the same code. It is content-addressed so it is not dependent on the platform. The ARM64 port of this game has a byte-identical Assembly-CSharp.dll to the Windows build, so it hashes identically. Cross-play would not be possible without this. If Unity didn't ship C# bytecode, and shipped compiled x86_64 code, then we would have to do recompilation, which would change the hash, so there would be need for spoofing the hash to allow cross-platform play.   
 That was proven by renaming the Mac bundle's `Contents/Managed` symlink and then the client logs `GAME HASH CALCULATION: Assembly-CSharp.dll DOES NOT EXIST????`, then the server answers `Connection Rejected: Game file Hashes mismatch.`    
 
 The second thing here is the version. So basically the string composed of game ver and mod ver (`"7.0.1_MPv4.0.1"`) must be identical on both sides.   
 
-And the mod list is also checked but only if that is enabled in the server settings. However this port is safe because `GetModList()` explicitly strips `KrokoshaCasualtiesMP` and `donnad.krmultiupdater` so a stock windows install or our ported Mac one with the mod, both return an empty list.
+And the mod list is also checked but only if that is enabled in the server settings. However this port is safe because `GetModList()` explicitly strips `KrokoshaCasualtiesMP` and `dannad.krmultiupdater` so a stock windows install or our ported Mac one with the mod, both return an empty list.
 
 #### Delivery classes
 
@@ -52,6 +53,12 @@ The mod does pick between different classes depending on the needed reliability.
 | `ReliableOrdered` | order matters (chat,session control) |
 | `Sequenced` | latest wins, drops stale |
 | `ReliableSequenced` | latest wins, guaranteed |
+
+Every message is self-describing, on the front there is a prefix, a 2-byte message-type id, and next there are message's own fields. 
+All that is built on a single helper called `CreateWriter(ushort msgid)` which writes the id before anything else. 
+The receiving side checks the ushort and then looks up the helper for it, and then hands the rest of the bytes to the handler. So thats why its a prefix, because the receiver cannot parse the message without knowing it's id.   
+And basically thats cool cause the mod can choose unreliable updates for position updates and reliable ordered for chat messages, and that is possible because each message is parsed on it's own, so a dropped position update cannot leave the receiver mid-way through something else, so they cannot corrupt each other.
+
 
 ## Status: two working ports
 
