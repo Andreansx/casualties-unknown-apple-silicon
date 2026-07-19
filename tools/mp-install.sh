@@ -24,11 +24,19 @@
 #                   Mono's MAP_JIT W^X and the preloader crashes before any plugin loads (B2).
 #                   Injected as the Doorstop ENTRYPOINT (a BepInEx patcher is too late).
 #   3. plugins      the mod's assemblies are all AnyCPU MSIL - nothing to recompile (B6 dissolved).
-#   4. natives      opus.dll -> libopus.dylib (B5). steam_api64.dll is left out: it needs the
-#                   universal libsteam_api.dylib AND a Steamworks.NET rebuilt with
-#                   STEAMWORKS_LIN_OSX (B3/B4, Phase 2) - so this install runs --ksmulti-nosteam
-#                   and multiplayer is direct-IP, which is exactly how the mod behaves when Steam
-#                   is absent (KSteam.Loaded=false -> Direct Connect UI).
+#   4. natives      opus.dll -> libopus.dylib (B5).
+#                   steam_api64.dll -> libsteam_api.dylib, AND the mod's Windows Steamworks.NET.dll
+#                   is swapped for the macOS one (B3/B4). No recompile is needed: upstream's
+#                   Steamworks.NET release already ships a prebuilt OSX-Linux-x64 build (Pack=4)
+#                   next to the Windows one, and the redistributable dylib is universal
+#                   (x86_64+arm64). We fetch the release matching the version the mod ships.
+#                   These two MUST travel together: the macOS assembly P/Invokes "steam_api", so
+#                   without the dylib SteamAPI.InitEx throws DllNotFoundException, which aborts the
+#                   rest of the mod's Awake_Stage2 - its assets and the multiplayer singleton
+#                   GameObject never get created. With both in place and no Steam client running,
+#                   InitEx merely returns an error, KSteam.Loaded stays false and the UI falls back
+#                   to Direct Connect - i.e. identical to the old --ksmulti-nosteam behaviour.
+#                   --no-steam keeps the Phase 1 layout (Windows dll + forced --ksmulti-nosteam).
 #   5. updater      autoupdater_patcher.dll is DROPPED (B8): it clones a staged update over
 #                   Environment.CurrentDirectory and would overwrite every adapted file here.
 #                   Multiupdater.dll is KEPT - the mod's settings GUI (DrawUpdateButton) references
@@ -51,6 +59,9 @@
 #   --mod <dir|zip>    the KrokMP download (the folder holding mod/, or its zip)     [required]
 #   --bepinex <dir|zip> BepInEx macOS-universal 5.4.23.x  [default: cached, downloaded if absent]
 #   --opus <dylib>     libopus.dylib to ship             [default: brew's, else voice is disabled]
+#   --steamworks <dir|zip> Steamworks.NET-Standalone release [default: cached, downloaded if absent]
+#   --no-steam         skip the Steam bits: keep the Windows Steamworks.NET and force
+#                      --ksmulti-nosteam (direct-IP only; the Phase 1 layout)
 #   --uninstall        remove the mod and restore the bundle (needs --app only)
 #   --no-sign          skip the re-sign (the app will NOT launch on Apple Silicon)
 set -euo pipefail
@@ -58,9 +69,12 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 
-APP=""; MOD=""; BEPZIP=""; OPUS=""; DO_SIGN=1; UNINSTALL=0
+APP=""; MOD=""; BEPZIP=""; OPUS=""; SWZIP=""; DO_SIGN=1; UNINSTALL=0; WANT_STEAM=1
 BEP_VER="5.4.23.5"
 BEP_URL="https://github.com/BepInEx/BepInEx/releases/download/v${BEP_VER}/BepInEx_macos_universal_${BEP_VER}.zip"
+# Fallback only. The version actually used is read out of the Steamworks.NET.dll the mod ships, so
+# a mod update that bumps Steamworks.NET pulls the matching macOS build automatically.
+SW_VER_FALLBACK="2025.163.0"
 CACHE="$HOME/.cache/casualties-port"
 
 die(){ printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
@@ -74,6 +88,8 @@ while [ $# -gt 0 ]; do
     --mod)       MOD="$2"; shift 2 ;;
     --bepinex)   BEPZIP="$2"; shift 2 ;;
     --opus)      OPUS="$2"; shift 2 ;;
+    --steamworks) SWZIP="$2"; shift 2 ;;
+    --no-steam)  WANT_STEAM=0; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     --no-sign)   DO_SIGN=0; shift ;;
     -h|--help)   sed -n '2,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -106,7 +122,8 @@ resign(){
 if [ "$UNINSTALL" = 1 ]; then
   say "uninstalling the co-op mod from $APP"
   rm -rf "$BEP" "$CONTENTS/Frameworks/libdoorstop.dylib" "$LAUNCHER" \
-         "$CONTENTS/steam_appid.txt" "$CONTENTS/PlugIns/libopus.dylib" "$CMD"
+         "$CONTENTS/steam_appid.txt" "$CONTENTS/PlugIns/libopus.dylib" \
+         "$CONTENTS/PlugIns/libsteam_api.dylib" "$CMD"
   [ -L "$CONTENTS/Managed" ] && rm -f "$CONTENTS/Managed" || true
   /usr/libexec/PlistBuddy -c 'Delete :NSMicrophoneUsageDescription' "$PLIST" 2>/dev/null || true
   ok "mod files removed (saves in ~/Library/Application Support are untouched)"
@@ -213,12 +230,68 @@ if [ -n "$OPUS" ] && [ -f "$OPUS" ]; then
   # OpusSharp does DllImport("opus"); Mono resolves that to libopus.dylib on the native search
   # path. PlugIns/ is the Unity player's own native-plugin dir, and the launcher adds it to
   # DYLD_LIBRARY_PATH. Copy the real file (brew ships symlinks).
+  # rm first: brew's dylib is mode 444, so a plain cp over a previous install is "Permission
+  # denied" - that is what made re-running this script fail on an already-modded bundle.
+  rm -f "$CONTENTS/PlugIns/libopus.dylib"
   cp -L "$OPUS" "$CONTENTS/PlugIns/libopus.dylib"
+  chmod u+w "$CONTENTS/PlugIns/libopus.dylib"
   ok "libopus.dylib ($(lipo -archs "$CONTENTS/PlugIns/libopus.dylib")) - voice chat enabled"
 else
   warn "no libopus.dylib found (brew install opus) - voice chat will be unavailable"
 fi
-warn "steam_api64.dll NOT installed - Steam lobbies are Phase 2 (B3/B4); direct-IP works now"
+# Steam (B3/B4): swap the mod's WINDOWS Steamworks.NET.dll for upstream's macOS build and add the
+# universal redistributable dylib. Both or neither - see the header. STEAM_OK drives the launcher.
+STEAM_OK=0
+if [ "$WANT_STEAM" = 0 ]; then
+  warn "--no-steam: keeping the Windows Steamworks.NET; the launcher will force --ksmulti-nosteam"
+elif [ ! -f "$MODSRC/Steamworks.NET.dll" ]; then
+  warn "the mod ships no Steamworks.NET.dll - nothing to swap; forcing --ksmulti-nosteam"
+else
+  # Match the version the mod was built against. A different version risks MissingMethodException,
+  # so this is verified against the extracted assembly below rather than assumed.
+  # '|| true' matters: with pipefail, a grep that matches nothing fails the whole pipeline, and a
+  # failing command substitution in an assignment is fatal under set -e - which would abort the
+  # install instead of using the fallback right below it.
+  SW_VER="$(strings -a "$MODSRC/Steamworks.NET.dll" | grep -Eo '^[0-9]{2,4}\.[0-9]{1,3}\.[0-9]{1,3}$' | sort -u | head -1 || true)"
+  SW_VER="${SW_VER:-$SW_VER_FALLBACK}"
+  say "     Steamworks.NET $SW_VER (macOS build + universal dylib)"
+  SWSRC=""
+  if [ -n "$SWZIP" ] && [ -d "$SWZIP" ]; then
+    SWSRC="$SWZIP"
+  else
+    if [ -z "$SWZIP" ]; then
+      SWZIP="$CACHE/Steamworks.NET-Standalone_${SW_VER}.zip"
+      if [ ! -f "$SWZIP" ]; then
+        mkdir -p "$CACHE"
+        SW_URL="https://github.com/rlabrecque/Steamworks.NET/releases/download/${SW_VER}/Steamworks.NET-Standalone_${SW_VER}.zip"
+        say "     downloading $SW_URL"
+        curl -fsSL -o "$SWZIP" "$SW_URL" || { rm -f "$SWZIP"; SWZIP=""; }
+      fi
+    fi
+    if [ -n "$SWZIP" ] && [ -f "$SWZIP" ]; then
+      WORKTMP="${WORKTMP:-$(mktemp -d)}"; mkdir -p "$WORKTMP/sw"
+      unzip -oq "$SWZIP" -d "$WORKTMP/sw" && SWSRC="$WORKTMP/sw"
+    fi
+  fi
+  SW_DLL="$SWSRC/OSX-Linux-x64/Steamworks.NET.dll"
+  SW_DYLIB="$SWSRC/OSX-Linux-x64/steam_api.bundle/Contents/MacOS/libsteam_api.dylib"
+  if [ -z "$SWSRC" ] || [ ! -f "$SW_DLL" ] || [ ! -f "$SW_DYLIB" ]; then
+    warn "no macOS Steamworks.NET $SW_VER (download failed? pass --steamworks <zip>)"
+  elif ! lipo -archs "$SW_DYLIB" | grep -q arm64; then
+    warn "libsteam_api.dylib has no arm64 slice ($(lipo -archs "$SW_DYLIB")) - refusing"
+  elif [ "$(strings -a "$SW_DLL" | grep -Eo '^[0-9]{2,4}\.[0-9]{1,3}\.[0-9]{1,3}$' | sort -u | head -1)" != "$SW_VER" ]; then
+    warn "the downloaded Steamworks.NET is not $SW_VER - refusing to mix versions"
+  else
+    rm -f "$PLUG/Steamworks.NET.dll"
+    cp -p "$SW_DLL" "$PLUG/Steamworks.NET.dll"
+    cp -f "$SW_DYLIB" "$CONTENTS/PlugIns/libsteam_api.dylib"
+    chmod u+w "$CONTENTS/PlugIns/libsteam_api.dylib"
+    STEAM_OK=1
+    ok "Steamworks.NET.dll -> macOS build (structs repack 8->4; the Windows one marshals callbacks wrong)"
+    ok "libsteam_api.dylib ($(lipo -archs "$CONTENTS/PlugIns/libsteam_api.dylib")) - Steam lobbies enabled"
+  fi
+  [ "$STEAM_OK" = 1 ] || warn "falling back to direct-IP only (--ksmulti-nosteam)"
+fi
 
 # ── 5. microphone permission (B7) ───────────────────────────────────────────
 say "5/9  Info.plist: NSMicrophoneUsageDescription (B7)"
@@ -235,15 +308,18 @@ ok "the mod's FNV-1a game-hash now sees Assembly-CSharp.dll (cross-play with Win
 # steam_appid.txt: Steamworks reads it from the CWD, and the launcher cd's to Contents/.
 APPID_SRC="$(/usr/bin/find "$MOD" -name steam_appid.txt -print -quit)"
 [ -n "$APPID_SRC" ] && cp -p "$APPID_SRC" "$CONTENTS/steam_appid.txt" && \
-  ok "steam_appid.txt ($(cat "$CONTENTS/steam_appid.txt")) staged for Phase 2" || true
+  ok "steam_appid.txt ($(cat "$CONTENTS/steam_appid.txt")) - how SteamAPI.InitEx identifies the app
+     when the game is not launched by Steam (it is read from the CWD, and the launcher cd's here)" || true
 
 # ── 7. launcher ─────────────────────────────────────────────────────────────
 say "7/9  launcher (Doorstop needs DYLD_INSERT_LIBRARIES)"
-# Steam is not wired up yet, so force the mod's no-Steam path: with the Windows Steamworks.NET
-# still in place, DllCheck.Test() would P/Invoke kernel32 and throw. --ksmulti-nosteam returns
-# from KSteam.CheckSteam() before that (Plugin.FORCE_NO_STEAM), and the UI falls back to
-# Direct Connect over LiteNetLib.
-EXTRA_ARGS="--ksmulti-nosteam"
+# With the macOS Steamworks.NET + dylib installed, let the mod probe Steam normally: if a Steam
+# client is running it gets lobbies, and if it is not, SteamAPI.InitEx just returns an error,
+# KSteam.Loaded stays false and the UI falls back to Direct Connect over LiteNetLib. Verified: on a
+# machine with no Steam client at all, the only difference from the forced-nosteam launcher is one
+# extra log line - assets, the multiplayer singleton and direct IP all behave identically.
+# Without the pair, force FORCE_NO_STEAM so CheckSteam() returns before any P/Invoke can throw.
+if [ "$STEAM_OK" = 1 ]; then EXTRA_ARGS=""; else EXTRA_ARGS="--ksmulti-nosteam"; fi
 cat > "$LAUNCHER" <<LAUNCH
 #!/bin/sh
 # Launch this game with BepInEx + Casualties: Together, natively on arm64.
@@ -295,9 +371,26 @@ done
 ok "all files in place"
 if [ -e "$BEP/patchers/KrokMP/autoupdater_patcher.dll" ]; then die "the auto-updater patcher got installed (B8)"; fi
 ok "no auto-updater patcher"
+# The one invariant that can half-break the mod: a macOS Steamworks.NET without its dylib makes
+# SteamAPI.InitEx throw DllNotFoundException, and the rest of Awake_Stage2 (mod assets, the
+# multiplayer singleton) never runs. Either the pair is complete, or --ksmulti-nosteam is forced.
+if [ "$STEAM_OK" = 1 ]; then
+  [ -f "$CONTENTS/PlugIns/libsteam_api.dylib" ] || die "Steam enabled but libsteam_api.dylib is missing"
+  grep -q -- "--ksmulti-nosteam" "$LAUNCHER" && die "Steam enabled but the launcher still forces --ksmulti-nosteam"
+  ok "Steam path complete (macOS Steamworks.NET + arm64 dylib, no forced --ksmulti-nosteam)"
+else
+  grep -q -- "--ksmulti-nosteam" "$LAUNCHER" || die "Steam not installed, but the launcher does not force --ksmulti-nosteam"
+  ok "Steam path disabled and --ksmulti-nosteam forced (direct-IP only)"
+fi
 
 echo
 say "DONE -> $APP"
 echo "  play (co-op):  \"$CMD\"   (or $LAUNCHER)"
 echo "  play (vanilla): double-click the .app as usual"
-echo "  the mod is direct-IP only until Steam lands (Phase 2): host, then share your IP:7790"
+if [ "$STEAM_OK" = 1 ]; then
+  echo "  Steam lobbies:  start Steam and log in BEFORE launching, and own app $(cat "$CONTENTS/steam_appid.txt" 2>/dev/null)."
+  echo "                  No Steam running is fine too - the mod falls back to Direct Connect."
+  echo "  direct IP:      host, then share your IP:7790 (UDP)"
+else
+  echo "  direct IP only: host, then share your IP:7790 (UDP)"
+fi

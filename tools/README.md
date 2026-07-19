@@ -14,9 +14,16 @@ co-op mod without Rosetta) — **solved**, see its README. **[`mp-install.sh`](m
 (`--app <CU.app> --mod <KrokMP download>`) then installs the mod itself in one command: macOS
 BepInEx + the arm64 fix into the bundle, the mod's AnyCPU plugins, `libopus.dylib`, the mic
 Info.plist key, the game-hash symlink, a launcher, re-sign (`--uninstall` reverses it).
+It also installs the **Steam** bits — the macOS Steamworks.NET build and the universal
+`libsteam_api.dylib` (`--no-steam` opts out). No recompile was needed for that: upstream's own
+release ships the macOS assembly next to the Windows one.
 **[`mp-playtest.sh`](mp-playtest.sh)** then lets you actually play it alone: it starts a second
 player headless (a real character, no window) and launches your game already connected, so co-op
-is testable on one Mac. **Direct-IP co-op verified working** between two native instances. Full picture + roadmap:
+is testable on one Mac. **[`mp-steam-probe.sh`](mp-steam-probe.sh)** answers "is the Steam path
+working?" headlessly, and distinguishes the graceful no-Steam fallback from a broken
+assembly/dylib pair — which leaves the mod half-initialised while still logging "is loaded!".
+**Direct-IP co-op verified working** between two native instances; Steam initialises in-process on
+arm64 but is **not yet confirmed against a live Steam client**. Full picture + roadmap:
 [`../docs/multiplayer-port.md`](../docs/multiplayer-port.md).
 
 ---

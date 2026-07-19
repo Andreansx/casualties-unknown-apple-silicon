@@ -6,8 +6,10 @@ the port's whole reason to exist (native gameplay draws ~47% less power than the
 path; see [`port-7.0.md`](port-7.0.md) and the power memory).
 
 **Status in one line:** **Phase 1 is DONE** — the mod loads, all its Harmony patches apply, and a
-real co-op session runs between two native arm64 instances over direct IP. What is left is Steam
-lobbies (Phase 2) and on-screen QA.
+real co-op session runs between two native arm64 instances over direct IP. **Phase 2 is BUILT and
+installed**: the macOS Steamworks.NET + universal `libsteam_api.dylib` now ship, and Valve's arm64
+code runs in-process — but it has never been seen talking to a *live* Steam client, because there
+is no Steam client installed on this Mac. That single confirmation is what Phase 2 still owes.
 
 This document is the durable state so a fresh session can pick up any single thread. It records
 what the mod *is*, what was proven, the full blocker map with per-item status, the repo-layout
@@ -28,8 +30,8 @@ decision, and the phased to-do.
 | Microphone permission | ✅ `NSMicrophoneUsageDescription` added by the installer |
 | Auto-updater | ✅ patcher dropped, `Multiupdater.dll` **kept** — see B8, the earlier plan was wrong |
 | Game-hash gate | ✅ **proven by negative control**; it is mandatory for ANY connection, not just cross-play |
-| Steam lobbies on arm64 | 🔵 Possible (universal `libsteam_api.dylib`), **deferred to Phase 2** (direct-IP works without it) |
-| Steamworks.NET | 🟠 must **recompile** with `STEAMWORKS_LIN_OSX` (packing differs) — Phase 2 |
+| Steam lobbies on arm64 | 🟡 **installed and loading** — Valve's arm64 dylib initialises in-process and fails back gracefully; **unverified against a live Steam client** (none on this Mac) |
+| Steamworks.NET | ✅ **no recompile needed** — upstream ships a prebuilt `OSX-Linux-x64` build (Pack=4) in the same release; installer swaps it in |
 | On-screen co-op (mod UI + joining with graphics) | ✅ **VERIFIED on a real display** — mod menu renders, session plays; one intermittent IMGUI race found (§2f) |
 | Voice chat / chat / B10 input | ⬜ needs a human at the keyboard (mic TCC prompt, push-to-talk, MMB bind) |
 
@@ -123,9 +125,10 @@ Full write-up + code: **[`../tools/bepinex-applesilicon/`](../tools/bepinex-appl
   Steam lobbies are viable.
 - **Steamworks.NET trap:** the mod ships the **Windows x64** build (PDB path proves it) which sets
   callback struct packing to Windows `Pack=8`; macOS/Linux needs `Pack=4`. Just renaming the dylib
-  would load and **silently corrupt every callback**. Must **recompile Steamworks.NET with
-  `STEAMWORKS_LIN_OSX`** (it's MIT and **not strong-named** — verified — so a rebuilt DLL drops in
-  cleanly). One caveat to test at runtime: `libsteamwebrtc.dylib` is x86_64-only, so direct P2P
+  would load and **silently corrupt every callback**. ~~Must recompile with `STEAMWORKS_LIN_OSX`~~
+  — **superseded by §2h: no recompile is needed, upstream ships the macOS build in the same
+  release zip.** The packing risk itself was real and is confirmed there (199 structs).
+  One caveat still to test at runtime: `libsteamwebrtc.dylib` is x86_64-only, so direct P2P
   may fall back to SDR relay.
 
 ### 2d. Phase 1 executed — the mod actually runs (2026-07-18)
@@ -255,6 +258,91 @@ build**, contrary to its own help text ("might not work in build"). Demote to ba
 *after* `FinishWorldGeneration` — worldgen is genuinely CPU-hungry and you do not want it on the
 E-cores. A client still joins and syncs correctly against an E-core host (verified).
 
+### 2h. Phase 2 executed — the Steam path is installed and Valve's arm64 code runs (2026-07-19)
+
+**The headline: there was nothing to recompile.** The plan said "rebuild Steamworks.NET with
+`STEAMWORKS_LIN_OSX`". That turned out to be unnecessary — **upstream already ships the macOS
+build**. `Steamworks.NET-Standalone_2025.163.0.zip` contains, side by side:
+
+```
+Windows-x64/Steamworks.NET.dll        ← what the mod ships (sha256 identical, verified)
+OSX-Linux-x64/Steamworks.NET.dll      ← the STEAMWORKS_LIN_OSX build we needed
+OSX-Linux-x64/steam_api.bundle/Contents/MacOS/libsteam_api.dylib   ← universal x86_64+arm64
+```
+
+The mod ships the **stock, unmodified** Windows assembly (sha256 `53b9a17b…` matches upstream
+byte for byte), so swapping in the OSX assembly from the *same release* loses nothing
+mod-specific. Both report assembly version `2025.163.0`, and a decompile-diff of the two shows the
+public surface is identical — the only differences are the struct packing and the native library
+name. So B3 and B4 collapse into "download the right zip", and `mp-install.sh` now does exactly
+that, reading the version out of the `Steamworks.NET.dll` the mod ships so a future mod update
+pulls its matching macOS build automatically.
+
+**The packing hazard is real — confirmed, not inherited.** Decompiling both assemblies:
+**199 structs move from `Pack = 8` to `Pack = 4`.** Shipping the Windows assembly on macOS really
+would have mis-marshalled every callback.
+
+**But two things the earlier plan asserted are WRONG, and the correction matters:**
+
+- **`DllCheck.Test()` does not P/Invoke kernel32.** In 2025.163.0 it is literally `return true;` —
+  a no-op stub, *identical in both builds*. There is no `kernel32`/`LoadLibrary`/`GetModuleHandle`
+  reference anywhere in the assembly. The B3 note claiming an uncaught kernel32 throw was
+  describing an older Steamworks.NET.
+- **`Packsize.Test()` does NOT catch the wrong-platform build.** It looked like a safety net; it
+  is not. Each build checks *its own* expected sizes — the Windows one asserts `32/616` (Pack=8),
+  the macOS one `24/612` (Pack=4) — so **both return true on their own terms**. It verifies that
+  the runtime honours `Pack`, not that you shipped the right assembly. The mismatch would have
+  been silent exactly as feared. What actually saves you is the *native library name*:
+  the Windows build imports `steam_api64`, which cannot resolve on macOS and throws loudly.
+
+**What each configuration actually does** — four headless runs, reading `BepInEx/LogOutput.log`.
+Reproduce any time with **`tools/mp-steam-probe.sh --matrix`** (it works on a throwaway APFS clone,
+so it never touches your install); plain `tools/mp-steam-probe.sh` just classifies the app you have:
+
+| Steamworks.NET | dylib | Steam path | result |
+|---|---|---|---|
+| Windows | — | enabled | `DllNotFoundException: steam_api64` |
+| macOS | — | enabled | `DllNotFoundException: steam_api` |
+| **macOS** | **✅** | **enabled** | **`Init failed: Could not determine Steam client install directory`** |
+| Windows | — | `--ksmulti-nosteam` | clean (what shipped before) |
+
+Row 3 is the proof. That message is **Valve's own string, returned from inside the arm64 slice of
+`libsteam_api.dylib`** through `SteamAPI.InitEx` as a structured `ESteamAPIInitResult` — not a
+Mono `DllNotFoundException`. So the dylib loaded from `Contents/PlugIns`, Mono mapped the import
+`steam_api` → `libsteam_api.dylib`, native arm64 code executed far enough to go looking for a
+Steam install, and the `out string` error message marshalled back correctly. Valve's own
+diagnostics now print too (`[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a
+running instance of Steam`). **Everything except a live Steam client is proven working.**
+
+**Why the pair is an atomic invariant.** Rows 1–2 are not merely "Steam is off" — the
+`DllNotFoundException` propagates out of `KSteam.CheckSteam()` and **aborts the rest of
+`Plugin.Awake_Stage2()`**. Measured against a good run, these never happen:
+`Plugin KrokoshaCasualtiesMP assets loaded!`, `Created multiplayer singleton GameObject!`,
+`Picked random color`, `VOICECHAT: Start()`. It is caught one frame up in `Awake_Stage1` so the
+game does not crash, which is precisely what makes it dangerous — a half-initialised mod that
+looks fine in the log's first 18 lines. `mp-install.sh` therefore installs the assembly and the
+dylib together or neither, and step 9 fails the install if that invariant is broken.
+
+**No regression, and this is now the default.** With no Steam client on the machine, the
+Steam-enabled launcher differs from the old forced-`--ksmulti-nosteam` one by **exactly one log
+line** (`Steamworks.NET: Init failed:`); assets, the multiplayer singleton, voice init and the
+Direct Connect UI are byte-for-byte the same sequence. And a full headless direct-IP session still
+completes with the Steam path live — host `Succesfully started: Host` → `FinishWorldGeneration` →
+`SERVER: Sending a spawn location`, client `Connected!` → seed → starter char →
+`Creating other player characters!`. So the launcher no longer forces `--ksmulti-nosteam`;
+`mp-install.sh --no-steam` restores the Phase 1 layout if ever needed.
+
+**Also fixed while here:** `mp-install.sh` was **not idempotent** — brew's `libopus.dylib` is
+copied mode `444`, so re-running the installer over an already-modded bundle died with
+`cp: … Permission denied` at step 4. It now removes the target first.
+
+**What Phase 2 still owes:** a Steam client has to exist to finish this. There is none on this Mac
+(`~/Library/Application Support/Steam` holds only leftover config; no `Steam.app`, no installed
+games, no `libsteam_api.dylib` anywhere on disk). Once Steam is installed, logged in, and the
+demo (app **4576510**) is owned, the remaining checks are: `SteamAPI.InitEx` → `k_ESteamAPIInitResult_OK`,
+`Steamworks initialized! <name> - <steamid>` in the log, `_USE_STEAM_MENU` flipping the UI to the
+lobby browser, then create/list/join a lobby and confirm `TransportSteamworks` carries a session.
+
 ---
 
 ## 3. Blocker map (with current status)
@@ -263,8 +351,8 @@ E-cores. A client still joins and syncs correctly against an E-core host (verifi
 |---|---|---|---|
 | **B1** | MonoMod picks x86 detour platform (ARM bit) | — | **Non-issue** — BepInEx sets ARM; and we set `DetourHelper.Native` directly, bypassing selection |
 | **B2** | Harmony detours die under Mono `MAP_JIT` W^X | 🔴→✅ | **SOLVED** — `tools/bepinex-applesilicon/` (native `as_jit_write` + Doorstop shim) |
-| **B3** | Steamworks.NET is the Windows build (wrong packing) | 🟠 | Phase 2: recompile w/ `STEAMWORKS_LIN_OSX`, `Pack=4`. MIT, not strong-named. **Until then the launcher forces `--ksmulti-nosteam`** — `DllCheck.Test()` would P/Invoke kernel32 and throw, and `KSteam.CheckSteam()` does not catch that |
-| **B4** | `steam_api64.dll` → needs `libsteam_api.dylib` | 🟡 | Phase 2: drop in universal SDK ≥1.52 dylib. Not installed today |
+| **B3** | Steamworks.NET is the Windows build (wrong packing) | ✅ | **DONE, no recompile** (§2h): upstream's own release ships the `OSX-Linux-x64` build (Pack=4 — 199 structs repack); installer swaps it in at the version the mod ships. ⚠️ The old rationale here was wrong twice over: `DllCheck.Test()` is a `return true` stub with no kernel32 anywhere, and `Packsize.Test()` passes in *both* builds so it never would have caught the mismatch |
+| **B4** | `steam_api64.dll` → needs `libsteam_api.dylib` | ✅ | **DONE** — universal (x86_64+arm64) dylib from the same release → `Contents/PlugIns`. Proven loading: Valve's arm64 code runs and returns a real `ESteamAPIInitResult`. **Must ship together with B3's assembly** — either alone half-breaks the mod (§2h) |
 | **B5** | `opus.dll` → needs `libopus.dylib` | ✅ | **DONE** — installer copies brew's arm64 dylib to `Contents/PlugIns`; `OpusSharp` imports plain `"opus"`, which Mono maps to `libopus.dylib`. Voice not yet exercised for real |
 | **B6** | `user32!SetWindowText` P/Invoke | ✅ | **Dissolved** — self-guarding, no-ops on macOS |
 | **B7** | Mic without `NSMicrophoneUsageDescription` → TCC kill | ✅ | **DONE** — installer adds the key, then re-signs |
@@ -316,16 +404,23 @@ Tidiness rules that keep the two concerns legible:
 - **B10 input pass:** `krokosha_coop_pointfingerat` defaults to MMB, unreachable on a trackpad.
 - Sanity-check the screen-lock trade-off documented in §2e.
 
-### Phase 2 — Steam lobbies
-4. Recompile Steamworks.NET (`STEAMWORKS_LIN_OSX`) at the mod's version and drop in universal
-   `libsteam_api.dylib` (B3/B4). Verify `SteamAPI.InitEx` succeeds and lobbies list/join.
-5. **Cross-play with Windows players** (LiteNetLib wire protocol is arch-neutral; game-hash matches
-   per B11). Test relay-vs-direct P2P given the `libsteamwebrtc` x86_64-only caveat.
+### Phase 2 — Steam lobbies — BUILT (2026-07-19), one confirmation short
+4. ✅ **macOS Steamworks.NET + universal `libsteam_api.dylib` installed** by `mp-install.sh`
+   (B3/B4, §2h). No recompile was needed. Valve's arm64 code initialises in-process, fails back
+   gracefully with no Steam client, and direct-IP co-op still passes end to end.
+5. ⬜ **Needs a Steam client — the one thing that cannot be done headlessly.** There is no Steam
+   installed on this Mac. Install it, log in, own the demo (app **4576510**), then launch through
+   `…-coop.command` and check the log for `Steamworks initialized! <name> - <steamid>` instead of
+   `Init failed`. Then: lobby create → list → join, and confirm `TransportSteamworks` carries a
+   session (`GetConnectionRealTimeStatus` also tells you direct-vs-relay, §6 of the networking
+   notes).
+6. ⬜ **Cross-play with Windows players** (LiteNetLib wire protocol is arch-neutral; game-hash
+   matches per B11). Test relay-vs-direct P2P given the `libsteamwebrtc` x86_64-only caveat.
 
 ### Phase 3 — polish / extract
-6. Fold `tools/bepinex-applesilicon/install.sh` in, then **extract `bepinex-applesilicon` to its
+7. Fold `tools/bepinex-applesilicon/install.sh` in, then **extract `bepinex-applesilicon` to its
    own repo** as a general-purpose arm64 BepInEx enabler.
-7. Reach out to Krokosha666 — upstream cooperation turns a private patch-shim into a real macOS
+8. Reach out to Krokosha666 — upstream cooperation turns a private patch-shim into a real macOS
    target (and could grant redistribution).
 
 ---
@@ -341,6 +436,16 @@ Tidiness rules that keep the two concerns legible:
   BepInEx is fetched to `~/.cache/casualties-port/` on first use
   (`BepInEx_macos_universal_5.4.23.5.zip` — the **macos_universal** asset; there is no
   `unix_x64` one, and the mod's own INSTALLATION.txt points at the Windows build).
+  The Steamworks.NET Standalone release is cached the same way, at the version read out of the
+  mod's own `Steamworks.NET.dll`. `--no-steam` reverts to the Phase 1 direct-IP-only layout;
+  `--steamworks <zip>` supplies the release offline.
+- **Which Steamworks.NET is installed?** `shasum -a 256 <app>/Contents/BepInEx/plugins/KrokMP/Steamworks.NET.dll`
+  → `c56f12c2…` is the macOS build, `53b9a17b…` is the Windows one the mod ships. The dylib must
+  be present whenever the macOS one is: `lipo -archs <app>/Contents/PlugIns/libsteam_api.dylib`.
+- **Is Steam actually up?** In `BepInEx/LogOutput.log`, `Steamworks initialized! <name> - <id>`
+  means yes; `Steamworks.NET: Init failed: …` is the graceful no-Steam fallback (direct IP still
+  works); a `DllNotFoundException` on `steam_api`/`steam_api64` means the assembly/dylib pair is
+  broken and the mod is **half-initialised** — reinstall (§2h).
 - **Headless co-op test** (no display needed), two instances of the installed `.app`
   (the second can be a cheap APFS clone — `cp -a`, the launcher is self-locating):
   ```sh
