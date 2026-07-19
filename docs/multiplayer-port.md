@@ -343,6 +343,16 @@ demo (app **4576510**) is owned, the remaining checks are: `SteamAPI.InitEx` →
 `Steamworks initialized! <name> - <steamid>` in the log, `_USE_STEAM_MENU` flipping the UI to the
 lobby browser, then create/list/join a lobby and confirm `TransportSteamworks` carries a session.
 
+**Where the `libsteamwebrtc` question actually lives (narrowed).** `libsteam_api.dylib` is a thin
+shim, not the implementation: its arm64 slice links only `libc++` and `libSystem`, exports 48 flat
+P2P/`SteamNetworkingSockets` symbols, and dlopens **`steamclient.dylib`** from the Steam install to
+do the real work. It carries no WebRTC/ICE reference of its own. So whether Steam P2P punches
+directly or falls back to SDR relay is a property of **Valve's client**, not of anything this port
+ships — we inherit it either way, and nothing we do can get it wrong. The check, once Steam is
+installed, is simply `lipo -archs` on the client's `libsteamwebrtc.dylib`: no arm64 slice there
+means relay-only. Valve's `steamclient.dylib` went universal on 2026-06-24 (§2c), so this may
+already be moot.
+
 ---
 
 ## 3. Blocker map (with current status)
