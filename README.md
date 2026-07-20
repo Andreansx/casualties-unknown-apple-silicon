@@ -6,7 +6,9 @@ without the fans spinning up.
 
 ## Networking in the game
 
-Of course this has to be on top cause this is my field where i do know a thing or two so I would like to write some of my own stuff here.   
+Of course this has to be on top cause this is my field where i do know a thing or two so I would like to write some of my own stuff here.    
+I know that this is not the most interesting thing in this project, but this is the stuff that i understand the most so i research things on my own in this field here.    
+You can jump to [The native port](#the-native-port-path-23---the-impressive-one)
 
 Basically, networking in this game does work as a client-server setup and not a mesh network. There is one player who is either the Host (he plays too), or a `DedicatedServer` who does not play. Everyone else is a client who asks for permission and connects to the server. 
 
