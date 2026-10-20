@@ -85,7 +85,7 @@ def custom_fingerprints(data_dir):
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--libs",default=os.path.expanduser("~/Games/d3dm-harvest/libs"))
-    ap.add_argument("--data",default=os.path.expanduser("~/Documents/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown_Data"))
+    ap.add_argument("--data",default=os.path.expanduser("~/Projects/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown_Data"))
     ap.add_argument("--out",default=os.path.expanduser("~/Games/d3dm-harvest/identified"))
     a=ap.parse_args()
     objdump=subprocess.check_output(["xcrun","-f","metal-objdump"]).decode().strip()

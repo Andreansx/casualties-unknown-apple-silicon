@@ -22,7 +22,7 @@
 #   wine   : ~/Games/CasualtiesUnknown/user.reg            # grep Screenmanager
 set -euo pipefail
 
-CSV="${CSV:-$HOME/Documents/casualtiesunknowncostam/power-7.0.csv}"
+CSV="${CSV:-$HOME/Projects/casualtiesunknowncostam/power-7.0.csv}"
 SECS="${SECS:-20}"
 
 if [[ "${1:-}" == "--report" ]]; then

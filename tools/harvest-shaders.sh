@@ -35,7 +35,7 @@ EXTERNAL="$GPTK/wine/lib/external"
 export WINEPREFIX="${WINEPREFIX:-$HOME/Games/CasualtiesUnknown}"
 export HARVEST_DIR="${HARVEST_DIR:-$HOME/Games/d3dm-harvest}"
 SHIM="$HARVEST_DIR/libharvestshim.dylib"
-EXE="${1:-$HOME/Documents/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown.exe}"
+EXE="${1:-$HOME/Projects/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown.exe}"
 
 die(){ printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 [ -x "$WINE" ] || die "GPTK wine not found at $WINE"

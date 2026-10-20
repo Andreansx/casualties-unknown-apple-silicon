@@ -30,7 +30,7 @@ WINE="$GPTK/wine/bin/wine64"
 EXTERNAL="$GPTK/wine/lib/external"
 export WINEPREFIX="${WINEPREFIX:-$HOME/Games/CasualtiesUnknown}"
 
-EXE="${1:-$HOME/Documents/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown.exe}"
+EXE="${1:-$HOME/Projects/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown.exe}"
 
 # ── sanity ──────────────────────────────────────────────────────────────────
 die(){ printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }

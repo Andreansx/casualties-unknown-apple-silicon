@@ -9,7 +9,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HARVEST_DIR="${HARVEST_DIR:-$HOME/Games/d3dm-harvest}"
-GAME_DATA="${GAME_DATA:-$HOME/Documents/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown_Data}"
+GAME_DATA="${GAME_DATA:-$HOME/Projects/casualtiesunknowncostam/CasualtiesUnknownDemo/CasualtiesUnknown_Data}"
 
 # find a python with UnityPy
 PY="${PY:-}"

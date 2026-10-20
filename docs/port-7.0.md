@@ -218,7 +218,7 @@ breaks `codesign`; `port.sh` refuses.
 ```bash
 WIN=~/Games/CU_demo_7
 APP=~/Applications/CU7.app
-DONOR=~/Documents/casualtiesunknowncostam/EmptyMac.app      # 2022.3.62f3, reusable
+DONOR=~/Projects/casualtiesunknowncostam/EmptyMac.app      # 2022.3.62f3, reusable
 DATA="$APP/Contents/Resources/Data"
 
 # 1. graft: Windows Data onto the native ARM64 Mac player
