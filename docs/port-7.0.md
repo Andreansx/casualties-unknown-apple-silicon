@@ -381,6 +381,28 @@ suspect the plist.
 
 ---
 
+## 5c. Steam build 24774057 (2026-08-17): Simplified Chinese - nothing to port
+
+Steam's public demo branch moved from our `23560597` to **`24774057`** with the "Simplified
+Chinese has been added to the demo" announcement. Fetched to `~/Games/CU_demo_7_b24774057`
+(same steamcmd command, new `force_install_dir`) and diffed file-by-file against the old build:
+
+- **one file added**: `CasualtiesUnknown_Data/Lang/zh-CN.json`
+- **everything else byte-identical** - exe, `Assembly-CSharp.dll`, assets, shaders, plugins.
+  `Application.version` is still `7.0.1`, so the co-op mod's version gate is unaffected.
+
+No code change is needed for a new language: `Locale.cs` enumerates
+`Application.dataPath + "/Lang/"` for `*.json`, and our `Contents/Lang` symlink (step 3) already
+puts that directory where macOS `dataPath` looks. `tools/port.sh` rebuilt it unchanged
+(65/65 Metal, 25/25 customs re-wrapped, signature verifies) and **Chinese loads and renders
+in-game** (user-confirmed) - the CJK glyphs need no extra font work.
+
+Harmless upstream quirk found on the way: the "open language folder" button builds
+`Application.dataPath + "\\Lang"` (`PreRunScript.cs`, `ConsoleScript.cs`) - a backslash path,
+so on macOS it likely opens nothing. Loading is unaffected (it uses `"/Lang/"`).
+
+---
+
 ## 6. What needs a HUMAN (and what does not)
 
 **Headless-safe (no display, screen may be locked/off):** the whole of §5 steps 1-5, and all of
